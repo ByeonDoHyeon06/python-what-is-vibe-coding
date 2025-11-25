@@ -47,35 +47,19 @@ class ProxmoxClient:
         disk_volume = self._disk_volume(plan)
 
         if plan.template_vmid:
-            config_data = {
-                "cores": plan.vcpu,
-                "memory": plan.memory_mb,
-                "name": vm_name,
-            }
-            clone_data = {
-                "newid": vmid,
-                "name": vm_name,
-                "target": node,
-            }
-            # clone_data["full"] = 0
-            if plan.disk_storage:
-                clone_data["full"] = 1
-                clone_data["storage"] = plan.disk_storage
-            else:
-                clone_data["full"] = 0
             response = self.http.post(
                 f"{base_url}/api2/json/nodes/{node}/qemu/{plan.template_vmid}/clone",
-                data=clone_data,
+                data={
+                    "newid": vmid,
+                    "name": vm_name,
+                    "target": node,
+                    "full": 1,
+                    "storage": plan.disk_storage or "local-lvm",
+                },
                 headers=self._headers(ticket, csrf),
             )
             response.raise_for_status()
         else:
-            config_data = {
-                "cores": plan.vcpu,
-                "memory": plan.memory_mb,
-                "name": vm_name,
-                "virtio0": disk_volume,
-            }
             payload = {
                 "vmid": vmid,
                 "name": vm_name,
@@ -96,7 +80,12 @@ class ProxmoxClient:
         # ensure resources match plan for cloned templates
         self.http.put(
             f"{base_url}/api2/json/nodes/{node}/qemu/{vmid}/config",
-            data=config_data,
+            data={
+                "cores": plan.vcpu,
+                "memory": plan.memory_mb,
+                "name": vm_name,
+                "virtio0": disk_volume,
+            },
             headers=self._headers(ticket, csrf),
         ).raise_for_status()
 
@@ -115,6 +104,120 @@ class ProxmoxClient:
             headers=self._headers(ticket, csrf),
         )
         response.raise_for_status()
+
+    def start_server(self, external_id: str, host: ProxmoxHostConfig, node: str | None = None) -> None:
+        """Power on an existing VM."""
+
+        ticket, csrf = self.authenticate(host)
+        target_node = node or host.node
+        if not target_node:
+            raise ValueError("Proxmox node required to start VM")
+
+        response = self.http.post(
+            f"{host.api_url.rstrip('/')}/api2/json/nodes/{target_node}/qemu/{external_id}/status/start",
+            headers=self._headers(ticket, csrf),
+        )
+        response.raise_for_status()
+
+    def stop_server(self, external_id: str, host: ProxmoxHostConfig, node: str | None = None) -> None:
+        """Power off an existing VM."""
+
+        ticket, csrf = self.authenticate(host)
+        target_node = node or host.node
+        if not target_node:
+            raise ValueError("Proxmox node required to stop VM")
+
+        response = self.http.post(
+            f"{host.api_url.rstrip('/')}/api2/json/nodes/{target_node}/qemu/{external_id}/status/stop",
+            headers=self._headers(ticket, csrf),
+        )
+        response.raise_for_status()
+
+    def shutdown_server(self, external_id: str, host: ProxmoxHostConfig, node: str | None = None) -> None:
+        """Gracefully shut down a VM via ACPI."""
+
+        ticket, csrf = self.authenticate(host)
+        target_node = node or host.node
+        if not target_node:
+            raise ValueError("Proxmox node required to shutdown VM")
+
+        response = self.http.post(
+            f"{host.api_url.rstrip('/')}/api2/json/nodes/{target_node}/qemu/{external_id}/status/shutdown",
+            headers=self._headers(ticket, csrf),
+        )
+        response.raise_for_status()
+
+    def reboot_server(self, external_id: str, host: ProxmoxHostConfig, node: str | None = None) -> None:
+        """Reboot a running VM."""
+
+        ticket, csrf = self.authenticate(host)
+        target_node = node or host.node
+        if not target_node:
+            raise ValueError("Proxmox node required to reboot VM")
+
+        response = self.http.post(
+            f"{host.api_url.rstrip('/')}/api2/json/nodes/{target_node}/qemu/{external_id}/status/reboot",
+            headers=self._headers(ticket, csrf),
+        )
+        response.raise_for_status()
+
+    def reset_server(self, external_id: str, host: ProxmoxHostConfig, node: str | None = None) -> None:
+        """Hard reset a VM."""
+
+        ticket, csrf = self.authenticate(host)
+        target_node = node or host.node
+        if not target_node:
+            raise ValueError("Proxmox node required to reset VM")
+
+        response = self.http.post(
+            f"{host.api_url.rstrip('/')}/api2/json/nodes/{target_node}/qemu/{external_id}/status/reset",
+            headers=self._headers(ticket, csrf),
+        )
+        response.raise_for_status()
+
+    def suspend_server(self, external_id: str, host: ProxmoxHostConfig, node: str | None = None) -> None:
+        """Suspend a VM to RAM."""
+
+        ticket, csrf = self.authenticate(host)
+        target_node = node or host.node
+        if not target_node:
+            raise ValueError("Proxmox node required to suspend VM")
+
+        response = self.http.post(
+            f"{host.api_url.rstrip('/')}/api2/json/nodes/{target_node}/qemu/{external_id}/status/suspend",
+            headers=self._headers(ticket, csrf),
+        )
+        response.raise_for_status()
+
+    def resume_server(self, external_id: str, host: ProxmoxHostConfig, node: str | None = None) -> None:
+        """Resume a suspended VM."""
+
+        ticket, csrf = self.authenticate(host)
+        target_node = node or host.node
+        if not target_node:
+            raise ValueError("Proxmox node required to resume VM")
+
+        response = self.http.post(
+            f"{host.api_url.rstrip('/')}/api2/json/nodes/{target_node}/qemu/{external_id}/status/resume",
+            headers=self._headers(ticket, csrf),
+        )
+        response.raise_for_status()
+
+    def get_server_status(self, external_id: str, host: ProxmoxHostConfig, node: str | None = None) -> str | None:
+        """Fetch the current runtime status for a VM."""
+
+        ticket, csrf = self.authenticate(host)
+        target_node = node or host.node
+        if not target_node:
+            raise ValueError("Proxmox node required to read VM status")
+
+        response = self.http.get(
+            f"{host.api_url.rstrip('/')}/api2/json/nodes/{target_node}/qemu/{external_id}/status/current",
+            headers=self._headers(ticket, csrf),
+        )
+        response.raise_for_status()
+        data = response.json().get("data", {})
+        return data.get("qmpstatus") or data.get("status") or data.get("vmstatus")
 
     @staticmethod
     def _generate_vmid(server: Server) -> int:

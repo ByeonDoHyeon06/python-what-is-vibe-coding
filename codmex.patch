@@ -13,10 +13,10 @@ index 0000000000000000000000000000000000000000..25ff10abe221d26a0547e83cc5a29e4b
 +data/
 diff --git a/README.md b/README.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..a09fd861a95e3ce086ee201009af9188a54d45ce
+index 0000000000000000000000000000000000000000..adebc87ff666fef72436d923bb1872418f98dfa5
 --- /dev/null
 +++ b/README.md
-@@ -0,0 +1,178 @@
+@@ -0,0 +1,199 @@
 +# VibeCoding Hosting Backend (FastAPI)
 +
 +## Getting started
@@ -38,16 +38,19 @@ index 0000000000000000000000000000000000000000..a09fd861a95e3ce086ee201009af9188
 +- `POST /users` – register a customer with `email`, `phone_number`, and optional `external_auth_id` (to link your auth provider).
 +- `GET /users` – list registered customers.
 +- `GET /servers/metadata/allowed` – discover configured plan specs and available locations before provisioning.
-+- `POST /servers` – provision a server for a user. Body example:
++- `POST /servers` – provision a server for a user (optionally include `expire_in_days` to set the initial lifetime). Body example:
 +  ```json
 +  {
 +    "user_id": "<user uuid from /users>",
 +    "plan": "basic",
-+    "location": "kr-central"
++    "location": "kr-central",
++    "expire_in_days": 30
 +  }
 +  ```
 +- `GET /servers/user/{user_id}` – list servers created for a specific user.
 +- `GET /servers/{server_id}` – fetch a single server.
++- `POST /servers/{server_id}/extend` – add more days to a server's lifetime; returns updated `expire_in_days` and `expire_at`.
++- Power controls: `POST /servers/{id}/start`, `/stop`, `/shutdown`, `/reboot`, `/reset`, `/suspend`, `/resume`.
 +- `GET /healthz` – simple health check.
 +
 +## How the Proxmox & SOLAPI adapters work
@@ -89,10 +92,10 @@ index 0000000000000000000000000000000000000000..a09fd861a95e3ce086ee201009af9188
 +# 2) Check allowed plans/locations
 +curl http://localhost:8000/servers/metadata/allowed
 +
-+# 3) Provision a server
++# 3) Provision a server (with optional expiry window)
 +curl -X POST http://localhost:8000/servers \
 +  -H "Content-Type: application/json" \
-+  -d '{"user_id":"<uuid>","plan":"basic","location":"kr-central"}'
++  -d '{"user_id":"<uuid>","plan":"basic","location":"kr-central","expire_in_days":14}'
 +```
 +
 +## End-to-end walkthrough (expected responses)
@@ -155,6 +158,9 @@ index 0000000000000000000000000000000000000000..a09fd861a95e3ce086ee201009af9188
 +  "vcpu": 1,
 +  "memory_mb": 1024,
 +  "disk_gb": 20,
++  "expire_in_days": 14,
++  "expire_at": "2024-01-15T12:00:00.000000",
++  "created_at": "2023-12-31T12:00:00.000000",
 +  "status": "active",
 +  "external_id": "vm-8c04a4df-1fae-4b43-8d45-b69d49fe4f57"
 +}
@@ -164,8 +170,20 @@ index 0000000000000000000000000000000000000000..a09fd861a95e3ce086ee201009af9188
 +# 4) Fetch the server directly (or list all servers for the user)
 +curl -s http://localhost:8000/servers/8c04a4df-1fae-4b43-8d45-b69d49fe4f57 | jq
 +curl -s http://localhost:8000/servers/user/0e9a8db2-4c03-4c5d-9a22-5601d2e4d4f1 | jq
++
++# 5) Power controls using the backend-issued server ID
++curl -s -X POST http://localhost:8000/servers/8c04a4df-1fae-4b43-8d45-b69d49fe4f57/stop | jq
++curl -s -X POST http://localhost:8000/servers/8c04a4df-1fae-4b43-8d45-b69d49fe4f57/start | jq
++curl -s -X POST http://localhost:8000/servers/8c04a4df-1fae-4b43-8d45-b69d49fe4f57/reboot | jq
++curl -s -X POST http://localhost:8000/servers/8c04a4df-1fae-4b43-8d45-b69d49fe4f57/shutdown | jq
++
++# 6) Extend lifetime by 7 days
++curl -s -X POST http://localhost:8000/servers/8c04a4df-1fae-4b43-8d45-b69d49fe4f57/extend \
++  -H "Content-Type: application/json" \
++  -d '{"additional_days":7}' | jq
 +```
-+Each server will show its persisted state:
++Both `GET /servers/{id}` and `GET /servers/user/{user_id}` refresh each server's runtime status from Proxmox (running/stopped/etc.) before returning and persist the latest state.
++Each server will show its persisted state, created/expiry times, and Proxmox mapping:
 +```json
 +[
 +  {
@@ -178,6 +196,9 @@ index 0000000000000000000000000000000000000000..a09fd861a95e3ce086ee201009af9188
 +    "vcpu": 1,
 +    "memory_mb": 1024,
 +    "disk_gb": 20,
++    "expire_in_days": 21,
++    "expire_at": "2024-01-22T12:00:00.000000",
++    "created_at": "2023-12-31T12:00:00.000000",
 +    "status": "active",
 +    "external_id": "vm-8c04a4df-1fae-4b43-8d45-b69d49fe4f57"
 +  }
@@ -203,14 +224,17 @@ new file mode 100644
 index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
 diff --git a/app/api/dependencies/__init__.py b/app/api/dependencies/__init__.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..68ae89816afc47333472a07d4d0bc7fd1f79ba75
+index 0000000000000000000000000000000000000000..30bebeb979fdc825199cdd830e31c03576bf94c0
 --- /dev/null
 +++ b/app/api/dependencies/__init__.py
-@@ -0,0 +1,120 @@
+@@ -0,0 +1,146 @@
 +from functools import lru_cache
 +
 +from app.application.services.server_orchestrator import ServerProvisionOrchestrator
++from app.application.use_cases.control_server_power import ControlServerPower
++from app.application.use_cases.extend_server_expiry import ExtendServerExpiry
 +from app.application.use_cases.provision_server import ProvisionServer
++from app.application.use_cases.refresh_server_status import RefreshServerStatus
 +from app.application.use_cases.register_user import RegisterUser
 +from app.domain.models.plan import PlanSpec
 +from app.domain.models.proxmox_host import ProxmoxHostConfig
@@ -327,6 +351,29 @@ index 0000000000000000000000000000000000000000..68ae89816afc47333472a07d4d0bc7fd
 +        policy=get_provisioning_policy(),
 +        orchestrator=get_server_orchestrator(),
 +    )
++
++
++@lru_cache()
++def get_server_power_control() -> ControlServerPower:
++    return ControlServerPower(
++        server_repo=get_server_repository(),
++        proxmox_hosts=get_proxmox_host_repository(),
++        proxmox_client=get_proxmox_client(),
++    )
++
++
++@lru_cache()
++def get_server_status_refresher() -> RefreshServerStatus:
++    return RefreshServerStatus(
++        server_repo=get_server_repository(),
++        proxmox_hosts=get_proxmox_host_repository(),
++        proxmox_client=get_proxmox_client(),
++    )
++
++
++@lru_cache()
++def get_server_expiry_extender() -> ExtendServerExpiry:
++    return ExtendServerExpiry(server_repo=get_server_repository())
 diff --git a/app/api/routes/admin.py b/app/api/routes/admin.py
 new file mode 100644
 index 0000000000000000000000000000000000000000..68cfd35d86f532beb1e2ad38c38100e1ecd56134
@@ -374,10 +421,10 @@ index 0000000000000000000000000000000000000000..68cfd35d86f532beb1e2ad38c38100e1
 +    return [ProxmoxHostRead.from_entity(host) for host in repo.list()]
 diff --git a/app/api/routes/servers.py b/app/api/routes/servers.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..bd1462b4014cbc4dd718dcb1c1731c8009363e59
+index 0000000000000000000000000000000000000000..b702e9794f5ca2f4f8c8ebb751ebff4d4f46dec3
 --- /dev/null
 +++ b/app/api/routes/servers.py
-@@ -0,0 +1,69 @@
+@@ -0,0 +1,168 @@
 +from uuid import UUID
 +
 +from fastapi import APIRouter, Depends, HTTPException
@@ -385,13 +432,17 @@ index 0000000000000000000000000000000000000000..bd1462b4014cbc4dd718dcb1c1731c80
 +from app.api.dependencies import (
 +    get_plan_repository,
 +    get_proxmox_host_repository,
++    get_server_expiry_extender,
++    get_server_power_control,
 +    get_server_provisioning,
-+    get_server_repository,
++    get_server_status_refresher,
 +)
++from app.application.use_cases.control_server_power import ControlServerPower
++from app.application.use_cases.extend_server_expiry import ExtendServerExpiry
++from app.application.use_cases.refresh_server_status import RefreshServerStatus
 +from app.infrastructure.repositories.plan_repository import PlanRepository
 +from app.infrastructure.repositories.proxmox_host_repository import ProxmoxHostRepository
-+from app.infrastructure.repositories.server_repository import ServerRepository
-+from app.interfaces.schemas import ServerCreate, ServerRead
++from app.interfaces.schemas import ServerCreate, ServerExtendRequest, ServerRead
 +
 +router = APIRouter(prefix="/servers", tags=["servers"])
 +
@@ -402,15 +453,23 @@ index 0000000000000000000000000000000000000000..bd1462b4014cbc4dd718dcb1c1731c80
 +    provision = Depends(get_server_provisioning),
 +):
 +    try:
-+        server = provision.execute(user_id=payload.user_id, plan=payload.plan, location=payload.location)
++        server = provision.execute(
++            user_id=payload.user_id,
++            plan=payload.plan,
++            location=payload.location,
++            expire_in_days=payload.expire_in_days,
++        )
 +        return ServerRead.from_entity(server)
 +    except ValueError as exc:
 +        raise HTTPException(status_code=400, detail=str(exc)) from exc
 +
 +
 +@router.get("/user/{user_id}", response_model=list[ServerRead])
-+def list_user_servers(user_id: UUID, repo: ServerRepository = Depends(get_server_repository)):
-+    servers = repo.list_for_user(user_id=user_id)
++def list_user_servers(
++    user_id: UUID,
++    refresher: RefreshServerStatus = Depends(get_server_status_refresher),
++):
++    servers = refresher.refresh_for_user(user_id=user_id)
 +    return [ServerRead.from_entity(server) for server in servers]
 +
 +
@@ -442,11 +501,98 @@ index 0000000000000000000000000000000000000000..bd1462b4014cbc4dd718dcb1c1731c80
 +
 +
 +@router.get("/{server_id}", response_model=ServerRead)
-+def get_server(server_id: UUID, repo: ServerRepository = Depends(get_server_repository)):
-+    server = repo.get(server_id)
++def get_server(
++    server_id: UUID,
++    refresher: RefreshServerStatus = Depends(get_server_status_refresher),
++):
++    server = refresher.refresh_by_id(server_id)
 +    if not server:
 +        raise HTTPException(status_code=404, detail="Server not found")
 +    return ServerRead.from_entity(server)
++
++
++@router.post("/{server_id}/start", response_model=ServerRead)
++def start_server(server_id: UUID, control: ControlServerPower = Depends(get_server_power_control)):
++    try:
++        server = control.start(server_id)
++        return ServerRead.from_entity(server)
++    except ValueError as exc:
++        status = 404 if "not found" in str(exc).lower() else 400
++        raise HTTPException(status_code=status, detail=str(exc)) from exc
++
++
++@router.post("/{server_id}/stop", response_model=ServerRead)
++def stop_server(server_id: UUID, control: ControlServerPower = Depends(get_server_power_control)):
++    try:
++        server = control.stop(server_id)
++        return ServerRead.from_entity(server)
++    except ValueError as exc:
++        status = 404 if "not found" in str(exc).lower() else 400
++        raise HTTPException(status_code=status, detail=str(exc)) from exc
++
++
++@router.post("/{server_id}/reboot", response_model=ServerRead)
++def reboot_server(server_id: UUID, control: ControlServerPower = Depends(get_server_power_control)):
++    try:
++        server = control.reboot(server_id)
++        return ServerRead.from_entity(server)
++    except ValueError as exc:
++        status = 404 if "not found" in str(exc).lower() else 400
++        raise HTTPException(status_code=status, detail=str(exc)) from exc
++
++
++@router.post("/{server_id}/reset", response_model=ServerRead)
++def reset_server(server_id: UUID, control: ControlServerPower = Depends(get_server_power_control)):
++    try:
++        server = control.reset(server_id)
++        return ServerRead.from_entity(server)
++    except ValueError as exc:
++        status = 404 if "not found" in str(exc).lower() else 400
++        raise HTTPException(status_code=status, detail=str(exc)) from exc
++
++
++@router.post("/{server_id}/shutdown", response_model=ServerRead)
++def shutdown_server(server_id: UUID, control: ControlServerPower = Depends(get_server_power_control)):
++    try:
++        server = control.shutdown(server_id)
++        return ServerRead.from_entity(server)
++    except ValueError as exc:
++        status = 404 if "not found" in str(exc).lower() else 400
++        raise HTTPException(status_code=status, detail=str(exc)) from exc
++
++
++@router.post("/{server_id}/suspend", response_model=ServerRead)
++def suspend_server(server_id: UUID, control: ControlServerPower = Depends(get_server_power_control)):
++    try:
++        server = control.suspend(server_id)
++        return ServerRead.from_entity(server)
++    except ValueError as exc:
++        status = 404 if "not found" in str(exc).lower() else 400
++        raise HTTPException(status_code=status, detail=str(exc)) from exc
++
++
++@router.post("/{server_id}/resume", response_model=ServerRead)
++def resume_server(server_id: UUID, control: ControlServerPower = Depends(get_server_power_control)):
++    try:
++        server = control.resume(server_id)
++        return ServerRead.from_entity(server)
++    except ValueError as exc:
++        status = 404 if "not found" in str(exc).lower() else 400
++        raise HTTPException(status_code=status, detail=str(exc)) from exc
++
++
++@router.post("/{server_id}/extend", response_model=ServerRead)
++def extend_server(
++    server_id: UUID,
++    payload: ServerExtendRequest,
++    extender: ExtendServerExpiry = Depends(get_server_expiry_extender),
++):
++    try:
++        server = extender.extend(server_id, additional_days=payload.additional_days)
++        return ServerRead.from_entity(server)
++    except ValueError as exc:
++        status = 404 if "not found" in str(exc).lower() else 400
++        raise HTTPException(status_code=status, detail=str(exc)) from exc
 diff --git a/app/api/routes/users.py b/app/api/routes/users.py
 new file mode 100644
 index 0000000000000000000000000000000000000000..4f0e94fd7d822bbb3c3481c16a8756b0c5c05ea6
@@ -548,12 +694,155 @@ index 0000000000000000000000000000000000000000..403c242227ff05b10ae064325fd5fb34
 +                self.proxmox_client.destroy_server(server.external_id, host=host, node=node)
 +        server.status = ServerStatus.ROLLED_BACK
 +        self.server_repo.update(server)
+diff --git a/app/application/use_cases/control_server_power.py b/app/application/use_cases/control_server_power.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..257379e19925ab768b4cb724412b41f7dadfae33
+--- /dev/null
++++ b/app/application/use_cases/control_server_power.py
+@@ -0,0 +1,108 @@
++from uuid import UUID
++
++from app.domain.models.server import Server, ServerStatus
++from app.infrastructure.clients.proxmox import ProxmoxClient
++from app.infrastructure.repositories.proxmox_host_repository import ProxmoxHostRepository
++from app.infrastructure.repositories.server_repository import ServerRepository
++
++
++class ControlServerPower:
++    """Allows operators to start/stop VMs using the backend-issued server ID."""
++
++    def __init__(
++        self,
++        server_repo: ServerRepository,
++        proxmox_hosts: ProxmoxHostRepository,
++        proxmox_client: ProxmoxClient,
++    ):
++        self.server_repo = server_repo
++        self.proxmox_hosts = proxmox_hosts
++        self.proxmox_client = proxmox_client
++
++    def start(self, server_id: UUID) -> Server:
++        server, host, node = self._resolve_server(server_id)
++        if not server.external_id:
++            raise ValueError("Server has no Proxmox external_id; cannot start")
++
++        self.proxmox_client.start_server(server.external_id, host=host, node=node)
++        server.status = ServerStatus.ACTIVE
++        self.server_repo.update(server)
++        return server
++
++    def stop(self, server_id: UUID) -> Server:
++        server, host, node = self._resolve_server(server_id)
++        if not server.external_id:
++            raise ValueError("Server has no Proxmox external_id; cannot stop")
++
++        self.proxmox_client.stop_server(server.external_id, host=host, node=node)
++        server.status = ServerStatus.STOPPED
++        self.server_repo.update(server)
++        return server
++
++    def reboot(self, server_id: UUID) -> Server:
++        server, host, node = self._resolve_server(server_id)
++        if not server.external_id:
++            raise ValueError("Server has no Proxmox external_id; cannot reboot")
++
++        self.proxmox_client.reboot_server(server.external_id, host=host, node=node)
++        server.status = ServerStatus.ACTIVE
++        self.server_repo.update(server)
++        return server
++
++    def reset(self, server_id: UUID) -> Server:
++        server, host, node = self._resolve_server(server_id)
++        if not server.external_id:
++            raise ValueError("Server has no Proxmox external_id; cannot reset")
++
++        self.proxmox_client.reset_server(server.external_id, host=host, node=node)
++        server.status = ServerStatus.ACTIVE
++        self.server_repo.update(server)
++        return server
++
++    def shutdown(self, server_id: UUID) -> Server:
++        server, host, node = self._resolve_server(server_id)
++        if not server.external_id:
++            raise ValueError("Server has no Proxmox external_id; cannot shutdown")
++
++        self.proxmox_client.shutdown_server(server.external_id, host=host, node=node)
++        server.status = ServerStatus.STOPPED
++        self.server_repo.update(server)
++        return server
++
++    def suspend(self, server_id: UUID) -> Server:
++        server, host, node = self._resolve_server(server_id)
++        if not server.external_id:
++            raise ValueError("Server has no Proxmox external_id; cannot suspend")
++
++        self.proxmox_client.suspend_server(server.external_id, host=host, node=node)
++        server.status = ServerStatus.STOPPED
++        self.server_repo.update(server)
++        return server
++
++    def resume(self, server_id: UUID) -> Server:
++        server, host, node = self._resolve_server(server_id)
++        if not server.external_id:
++            raise ValueError("Server has no Proxmox external_id; cannot resume")
++
++        self.proxmox_client.resume_server(server.external_id, host=host, node=node)
++        server.status = ServerStatus.ACTIVE
++        self.server_repo.update(server)
++        return server
++
++    def _resolve_server(self, server_id: UUID) -> tuple[Server, "ProxmoxHostConfig", str]:
++        server = self.server_repo.get(server_id)
++        if not server:
++            raise ValueError("Server not found")
++
++        if not server.proxmox_host_id:
++            raise ValueError("Server is missing Proxmox host mapping")
++
++        host = self.proxmox_hosts.get(server.proxmox_host_id)
++        if not host:
++            raise ValueError("Proxmox host not found for server")
++
++        node = server.proxmox_node or host.node
++        if not node:
++            raise ValueError("Proxmox node not available for server")
++
++        return server, host, node
+diff --git a/app/application/use_cases/extend_server_expiry.py b/app/application/use_cases/extend_server_expiry.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..e0497c490f5be164622082e98f5dd3a11da9a50b
+--- /dev/null
++++ b/app/application/use_cases/extend_server_expiry.py
+@@ -0,0 +1,23 @@
++from uuid import UUID
++
++from app.domain.models.server import Server
++from app.infrastructure.repositories.server_repository import ServerRepository
++
++
++class ExtendServerExpiry:
++    """Handles extending a server's lifetime by increasing expire_in_days."""
++
++    def __init__(self, server_repo: ServerRepository):
++        self.server_repo = server_repo
++
++    def extend(self, server_id: UUID, additional_days: int) -> Server:
++        if additional_days <= 0:
++            raise ValueError("additional_days must be positive")
++
++        server = self.server_repo.get(server_id)
++        if not server:
++            raise ValueError("Server not found")
++
++        server.expire_in_days = (server.expire_in_days or 0) + additional_days
++        self.server_repo.update(server)
++        return server
 diff --git a/app/application/use_cases/provision_server.py b/app/application/use_cases/provision_server.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..0169d5516b463c5572644450535e8405dd371e89
+index 0000000000000000000000000000000000000000..b577f196c9a5ae40fed1a65cdff9e5753a51e42a
 --- /dev/null
 +++ b/app/application/use_cases/provision_server.py
-@@ -0,0 +1,49 @@
+@@ -0,0 +1,50 @@
 +from uuid import UUID
 +
 +from app.domain.models.server import Server
@@ -582,7 +871,7 @@ index 0000000000000000000000000000000000000000..0169d5516b463c5572644450535e8405
 +        self.policy = policy
 +        self.orchestrator = orchestrator
 +
-+    def execute(self, user_id: UUID, plan: str, location: str) -> Server:
++    def execute(self, user_id: UUID, plan: str, location: str, expire_in_days: int | None = None) -> Server:
 +        user = self.user_repo.get(user_id)
 +        if not user:
 +            raise ValueError("User not found")
@@ -599,10 +888,88 @@ index 0000000000000000000000000000000000000000..0169d5516b463c5572644450535e8405
 +            vcpu=plan_spec.vcpu,
 +            memory_mb=plan_spec.memory_mb,
 +            disk_gb=plan_spec.disk_gb,
++            expire_in_days=expire_in_days,
 +        )
 +        self.server_repo.add(server)
 +        self.orchestrator.provision(server, user, plan_spec, host)
 +        return server
+diff --git a/app/application/use_cases/refresh_server_status.py b/app/application/use_cases/refresh_server_status.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..3082857e70dcad38cedbaefdcb2473f1633446e0
+--- /dev/null
++++ b/app/application/use_cases/refresh_server_status.py
+@@ -0,0 +1,71 @@
++from uuid import UUID
++
++from app.domain.models.server import Server, ServerStatus
++from app.infrastructure.clients.proxmox import ProxmoxClient
++from app.infrastructure.repositories.proxmox_host_repository import ProxmoxHostRepository
++from app.infrastructure.repositories.server_repository import ServerRepository
++
++
++class RefreshServerStatus:
++    """Sync server status from Proxmox when servers are retrieved."""
++
++    def __init__(
++        self,
++        server_repo: ServerRepository,
++        proxmox_hosts: ProxmoxHostRepository,
++        proxmox_client: ProxmoxClient,
++    ):
++        self.server_repo = server_repo
++        self.proxmox_hosts = proxmox_hosts
++        self.proxmox_client = proxmox_client
++
++    def refresh_by_id(self, server_id: UUID) -> Server | None:
++        server = self.server_repo.get(server_id)
++        if not server:
++            return None
++        return self._refresh(server)
++
++    def refresh_for_user(self, user_id: UUID) -> list[Server]:
++        servers = list(self.server_repo.list_for_user(user_id))
++        return [self._refresh(server) for server in servers]
++
++    def _refresh(self, server: Server) -> Server:
++        if not server.external_id or not server.proxmox_host_id:
++            return server
++
++        host = self.proxmox_hosts.get(server.proxmox_host_id)
++        if not host:
++            return server
++
++        node = server.proxmox_node or host.node
++        if not node:
++            return server
++
++        try:
++            proxmox_status = self.proxmox_client.get_server_status(
++                external_id=server.external_id, host=host, node=node
++            )
++        except Exception:  # noqa: BLE001
++            return server
++
++        mapped = self._map_proxmox_status(proxmox_status)
++        if mapped and mapped != server.status:
++            server.status = mapped
++            self.server_repo.update(server)
++        return server
++
++    @staticmethod
++    def _map_proxmox_status(status: str | None) -> ServerStatus | None:
++        if not status:
++            return None
++
++        normalized = status.lower()
++        if normalized in {"running", "online", "started"}:
++            return ServerStatus.ACTIVE
++        if normalized in {"stopped", "shutdown", "off"}:
++            return ServerStatus.STOPPED
++        if normalized in {"paused", "suspended", "hibernated"}:
++            return ServerStatus.STOPPED
++        if normalized in {"booting", "starting", "init"}:
++            return ServerStatus.PROVISIONING
++        return ServerStatus.FAILED if normalized in {"failed", "error"} else None
 diff --git a/app/application/use_cases/register_user.py b/app/application/use_cases/register_user.py
 new file mode 100644
 index 0000000000000000000000000000000000000000..bf89a8899de8bf183281e01d20f936d9893cb509
@@ -671,12 +1038,12 @@ index 0000000000000000000000000000000000000000..aa80d3e8f81eb04e50cbdba1d1dd5542
 +    location: str = "kr-central"
 diff --git a/app/domain/models/server.py b/app/domain/models/server.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..4a586b472165cd8f3d693ba92d56b6c60b5ba337
+index 0000000000000000000000000000000000000000..112fa958a0aa09f65ba2af4f9e3f60ceac5ffa02
 --- /dev/null
 +++ b/app/domain/models/server.py
-@@ -0,0 +1,30 @@
+@@ -0,0 +1,38 @@
 +from dataclasses import dataclass, field
-+from datetime import datetime
++from datetime import datetime, timedelta
 +from enum import Enum
 +from uuid import UUID, uuid4
 +
@@ -685,6 +1052,7 @@ index 0000000000000000000000000000000000000000..4a586b472165cd8f3d693ba92d56b6c6
 +    PENDING = "pending"
 +    PROVISIONING = "provisioning"
 +    ACTIVE = "active"
++    STOPPED = "stopped"
 +    FAILED = "failed"
 +    ROLLED_BACK = "rolled_back"
 +
@@ -701,10 +1069,17 @@ index 0000000000000000000000000000000000000000..4a586b472165cd8f3d693ba92d56b6c6
 +    vcpu: int | None = None
 +    memory_mb: int | None = None
 +    disk_gb: int | None = None
++    expire_in_days: int | None = None
 +    status: ServerStatus = ServerStatus.PENDING
 +    id: UUID = field(default_factory=uuid4)
 +    created_at: datetime = field(default_factory=datetime.utcnow)
 +    external_id: str | None = None
++
++    @property
++    def expire_at(self) -> datetime | None:
++        if self.expire_in_days is None:
++            return None
++        return self.created_at + timedelta(days=self.expire_in_days)
 diff --git a/app/domain/models/user.py b/app/domain/models/user.py
 new file mode 100644
 index 0000000000000000000000000000000000000000..5bc4b62608903bb1b8cc245043b4050031c1f892
@@ -771,10 +1146,10 @@ new file mode 100644
 index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
 diff --git a/app/infrastructure/clients/proxmox.py b/app/infrastructure/clients/proxmox.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..0b40a7c4afd62c0aca700297782232a6adf431bd
+index 0000000000000000000000000000000000000000..3fde7cf784d5dc0c8238de39b524583118bffa4a
 --- /dev/null
 +++ b/app/infrastructure/clients/proxmox.py
-@@ -0,0 +1,117 @@
+@@ -0,0 +1,231 @@
 +from typing import Tuple
 +
 +import httpx
@@ -881,6 +1256,120 @@ index 0000000000000000000000000000000000000000..0b40a7c4afd62c0aca700297782232a6
 +            headers=self._headers(ticket, csrf),
 +        )
 +        response.raise_for_status()
++
++    def start_server(self, external_id: str, host: ProxmoxHostConfig, node: str | None = None) -> None:
++        """Power on an existing VM."""
++
++        ticket, csrf = self.authenticate(host)
++        target_node = node or host.node
++        if not target_node:
++            raise ValueError("Proxmox node required to start VM")
++
++        response = self.http.post(
++            f"{host.api_url.rstrip('/')}/api2/json/nodes/{target_node}/qemu/{external_id}/status/start",
++            headers=self._headers(ticket, csrf),
++        )
++        response.raise_for_status()
++
++    def stop_server(self, external_id: str, host: ProxmoxHostConfig, node: str | None = None) -> None:
++        """Power off an existing VM."""
++
++        ticket, csrf = self.authenticate(host)
++        target_node = node or host.node
++        if not target_node:
++            raise ValueError("Proxmox node required to stop VM")
++
++        response = self.http.post(
++            f"{host.api_url.rstrip('/')}/api2/json/nodes/{target_node}/qemu/{external_id}/status/stop",
++            headers=self._headers(ticket, csrf),
++        )
++        response.raise_for_status()
++
++    def shutdown_server(self, external_id: str, host: ProxmoxHostConfig, node: str | None = None) -> None:
++        """Gracefully shut down a VM via ACPI."""
++
++        ticket, csrf = self.authenticate(host)
++        target_node = node or host.node
++        if not target_node:
++            raise ValueError("Proxmox node required to shutdown VM")
++
++        response = self.http.post(
++            f"{host.api_url.rstrip('/')}/api2/json/nodes/{target_node}/qemu/{external_id}/status/shutdown",
++            headers=self._headers(ticket, csrf),
++        )
++        response.raise_for_status()
++
++    def reboot_server(self, external_id: str, host: ProxmoxHostConfig, node: str | None = None) -> None:
++        """Reboot a running VM."""
++
++        ticket, csrf = self.authenticate(host)
++        target_node = node or host.node
++        if not target_node:
++            raise ValueError("Proxmox node required to reboot VM")
++
++        response = self.http.post(
++            f"{host.api_url.rstrip('/')}/api2/json/nodes/{target_node}/qemu/{external_id}/status/reboot",
++            headers=self._headers(ticket, csrf),
++        )
++        response.raise_for_status()
++
++    def reset_server(self, external_id: str, host: ProxmoxHostConfig, node: str | None = None) -> None:
++        """Hard reset a VM."""
++
++        ticket, csrf = self.authenticate(host)
++        target_node = node or host.node
++        if not target_node:
++            raise ValueError("Proxmox node required to reset VM")
++
++        response = self.http.post(
++            f"{host.api_url.rstrip('/')}/api2/json/nodes/{target_node}/qemu/{external_id}/status/reset",
++            headers=self._headers(ticket, csrf),
++        )
++        response.raise_for_status()
++
++    def suspend_server(self, external_id: str, host: ProxmoxHostConfig, node: str | None = None) -> None:
++        """Suspend a VM to RAM."""
++
++        ticket, csrf = self.authenticate(host)
++        target_node = node or host.node
++        if not target_node:
++            raise ValueError("Proxmox node required to suspend VM")
++
++        response = self.http.post(
++            f"{host.api_url.rstrip('/')}/api2/json/nodes/{target_node}/qemu/{external_id}/status/suspend",
++            headers=self._headers(ticket, csrf),
++        )
++        response.raise_for_status()
++
++    def resume_server(self, external_id: str, host: ProxmoxHostConfig, node: str | None = None) -> None:
++        """Resume a suspended VM."""
++
++        ticket, csrf = self.authenticate(host)
++        target_node = node or host.node
++        if not target_node:
++            raise ValueError("Proxmox node required to resume VM")
++
++        response = self.http.post(
++            f"{host.api_url.rstrip('/')}/api2/json/nodes/{target_node}/qemu/{external_id}/status/resume",
++            headers=self._headers(ticket, csrf),
++        )
++        response.raise_for_status()
++
++    def get_server_status(self, external_id: str, host: ProxmoxHostConfig, node: str | None = None) -> str | None:
++        """Fetch the current runtime status for a VM."""
++
++        ticket, csrf = self.authenticate(host)
++        target_node = node or host.node
++        if not target_node:
++            raise ValueError("Proxmox node required to read VM status")
++
++        response = self.http.get(
++            f"{host.api_url.rstrip('/')}/api2/json/nodes/{target_node}/qemu/{external_id}/status/current",
++            headers=self._headers(ticket, csrf),
++        )
++        response.raise_for_status()
++        data = response.json().get("data", {})
++        return data.get("qmpstatus") or data.get("status") or data.get("vmstatus")
 +
 +    @staticmethod
 +    def _generate_vmid(server: Server) -> int:
@@ -1089,10 +1578,10 @@ index 0000000000000000000000000000000000000000..7de314783688e319e21365d3834ac8ba
 +        )
 diff --git a/app/infrastructure/repositories/server_repository.py b/app/infrastructure/repositories/server_repository.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..616a2e6c3951ba2fd9cebd776582f58709ef78e9
+index 0000000000000000000000000000000000000000..ff07f1c4dda0f763ab14aa111255d95d092d36a7
 --- /dev/null
 +++ b/app/infrastructure/repositories/server_repository.py
-@@ -0,0 +1,75 @@
+@@ -0,0 +1,78 @@
 +from collections.abc import Iterable
 +from datetime import datetime
 +from typing import Optional
@@ -1111,8 +1600,8 @@ index 0000000000000000000000000000000000000000..616a2e6c3951ba2fd9cebd776582f587
 +    def add(self, server: Server) -> None:
 +        self.db.execute(
 +            """
-+            INSERT INTO servers (id, owner_id, plan, location, proxmox_host_id, proxmox_node, vcpu, memory_mb, disk_gb, status, created_at, external_id)
-+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
++            INSERT INTO servers (id, owner_id, plan, location, proxmox_host_id, proxmox_node, vcpu, memory_mb, disk_gb, expire_in_days, status, created_at, external_id)
++            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 +            ON CONFLICT(id) DO UPDATE SET
 +                owner_id=excluded.owner_id,
 +                plan=excluded.plan,
@@ -1122,6 +1611,7 @@ index 0000000000000000000000000000000000000000..616a2e6c3951ba2fd9cebd776582f587
 +                vcpu=excluded.vcpu,
 +                memory_mb=excluded.memory_mb,
 +                disk_gb=excluded.disk_gb,
++                expire_in_days=excluded.expire_in_days,
 +                status=excluded.status,
 +                external_id=excluded.external_id
 +            """,
@@ -1135,6 +1625,7 @@ index 0000000000000000000000000000000000000000..616a2e6c3951ba2fd9cebd776582f587
 +                server.vcpu,
 +                server.memory_mb,
 +                server.disk_gb,
++                server.expire_in_days,
 +                server.status.value,
 +                server.created_at.isoformat(),
 +                server.external_id,
@@ -1164,6 +1655,7 @@ index 0000000000000000000000000000000000000000..616a2e6c3951ba2fd9cebd776582f587
 +            vcpu=row["vcpu"],
 +            memory_mb=row["memory_mb"],
 +            disk_gb=row["disk_gb"],
++            expire_in_days=row["expire_in_days"],
 +            status=ServerStatus(row["status"]),
 +            created_at=datetime.fromisoformat(row["created_at"]),
 +            external_id=row["external_id"],
@@ -1235,10 +1727,10 @@ index 0000000000000000000000000000000000000000..4356d93964eabed5bbcec81df95a64f4
 +
 diff --git a/app/infrastructure/storage/sqlite.py b/app/infrastructure/storage/sqlite.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..944128ae853d72da34772daadfc34d8657cb11a2
+index 0000000000000000000000000000000000000000..95da2b86311189dcbfde6dc482b83f4df78853aa
 --- /dev/null
 +++ b/app/infrastructure/storage/sqlite.py
-@@ -0,0 +1,90 @@
+@@ -0,0 +1,104 @@
 +from __future__ import annotations
 +
 +import os
@@ -1310,13 +1802,27 @@ index 0000000000000000000000000000000000000000..944128ae853d72da34772daadfc34d86
 +                vcpu INTEGER,
 +                memory_mb INTEGER,
 +                disk_gb INTEGER,
++                expire_in_days INTEGER,
 +                status TEXT NOT NULL,
 +                created_at TEXT NOT NULL,
 +                external_id TEXT
 +            )
 +            """
 +        )
++        self._ensure_column(
++            cur,
++            table="servers",
++            column="expire_in_days",
++            ddl="INTEGER",
++        )
 +        self.conn.commit()
++
++    @staticmethod
++    def _ensure_column(cur: sqlite3.Cursor, table: str, column: str, ddl: str) -> None:
++        cur.execute(f"PRAGMA table_info({table})")
++        columns = {row[1] for row in cur.fetchall()}
++        if column not in columns:
++            cur.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
 +
 +    def execute(self, query: str, params: Iterable | tuple = ()) -> None:
 +        self.conn.execute(query, params)
@@ -1334,10 +1840,10 @@ new file mode 100644
 index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
 diff --git a/app/interfaces/schemas.py b/app/interfaces/schemas.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..87d734914258103e81f9c7ba5761202ef8f3a770
+index 0000000000000000000000000000000000000000..431e756d136f71627944855e115997aad084d475
 --- /dev/null
 +++ b/app/interfaces/schemas.py
-@@ -0,0 +1,132 @@
+@@ -0,0 +1,147 @@
 +from uuid import UUID
 +
 +from pydantic import BaseModel, EmailStr, Field
@@ -1376,6 +1882,11 @@ index 0000000000000000000000000000000000000000..87d734914258103e81f9c7ba5761202e
 +    user_id: UUID
 +    plan: str
 +    location: str
++    expire_in_days: int | None = Field(
++        default=None,
++        description="Optional number of days until expiration",
++        gt=0,
++    )
 +
 +
 +class ServerRead(BaseModel):
@@ -1388,6 +1899,9 @@ index 0000000000000000000000000000000000000000..87d734914258103e81f9c7ba5761202e
 +    vcpu: int | None
 +    memory_mb: int | None
 +    disk_gb: int | None
++    expire_in_days: int | None
++    expire_at: str | None
++    created_at: str
 +    status: ServerStatus
 +    external_id: str | None
 +
@@ -1403,9 +1917,16 @@ index 0000000000000000000000000000000000000000..87d734914258103e81f9c7ba5761202e
 +            vcpu=server.vcpu,
 +            memory_mb=server.memory_mb,
 +            disk_gb=server.disk_gb,
++            expire_in_days=server.expire_in_days,
++            expire_at=server.expire_at.isoformat() if server.expire_at else None,
++            created_at=server.created_at.isoformat(),
 +            status=server.status,
 +            external_id=server.external_id,
 +        )
++
++
++class ServerExtendRequest(BaseModel):
++    additional_days: int = Field(..., gt=0, description="Days to add to current expire_in_days")
 +
 +
 +class PlanCreate(BaseModel):

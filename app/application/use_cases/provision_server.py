@@ -1,4 +1,3 @@
-from typing import Optional
 from uuid import UUID
 
 from app.domain.models.server import Server
@@ -27,7 +26,7 @@ class ProvisionServer:
         self.policy = policy
         self.orchestrator = orchestrator
 
-    def execute(self, user_id: UUID, plan: str, location: str, expire_in: Optional[int]) -> Server:
+    def execute(self, user_id: UUID, plan: str, location: str, expire_in_days: int | None = None) -> Server:
         user = self.user_repo.get(user_id)
         if not user:
             raise ValueError("User not found")
@@ -44,7 +43,7 @@ class ProvisionServer:
             vcpu=plan_spec.vcpu,
             memory_mb=plan_spec.memory_mb,
             disk_gb=plan_spec.disk_gb,
-            expire_in=expire_in or 30,
+            expire_in_days=expire_in_days,
         )
         self.server_repo.add(server)
         self.orchestrator.provision(server, user, plan_spec, host)

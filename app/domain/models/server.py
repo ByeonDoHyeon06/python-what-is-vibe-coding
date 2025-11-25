@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from uuid import UUID, uuid4
 
@@ -8,6 +8,7 @@ class ServerStatus(str, Enum):
     PENDING = "pending"
     PROVISIONING = "provisioning"
     ACTIVE = "active"
+    STOPPED = "stopped"
     FAILED = "failed"
     ROLLED_BACK = "rolled_back"
 
@@ -24,8 +25,14 @@ class Server:
     vcpu: int | None = None
     memory_mb: int | None = None
     disk_gb: int | None = None
+    expire_in_days: int | None = None
     status: ServerStatus = ServerStatus.PENDING
     id: UUID = field(default_factory=uuid4)
     created_at: datetime = field(default_factory=datetime.utcnow)
-    expire_in: int | None = None
     external_id: str | None = None
+
+    @property
+    def expire_at(self) -> datetime | None:
+        if self.expire_in_days is None:
+            return None
+        return self.created_at + timedelta(days=self.expire_in_days)

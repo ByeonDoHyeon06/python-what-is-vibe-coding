@@ -1,7 +1,10 @@
 from functools import lru_cache
 
 from app.application.services.server_orchestrator import ServerProvisionOrchestrator
+from app.application.use_cases.control_server_power import ControlServerPower
+from app.application.use_cases.extend_server_expiry import ExtendServerExpiry
 from app.application.use_cases.provision_server import ProvisionServer
+from app.application.use_cases.refresh_server_status import RefreshServerStatus
 from app.application.use_cases.register_user import RegisterUser
 from app.domain.models.plan import PlanSpec
 from app.domain.models.proxmox_host import ProxmoxHostConfig
@@ -118,3 +121,26 @@ def get_server_provisioning() -> ProvisionServer:
         policy=get_provisioning_policy(),
         orchestrator=get_server_orchestrator(),
     )
+
+
+@lru_cache()
+def get_server_power_control() -> ControlServerPower:
+    return ControlServerPower(
+        server_repo=get_server_repository(),
+        proxmox_hosts=get_proxmox_host_repository(),
+        proxmox_client=get_proxmox_client(),
+    )
+
+
+@lru_cache()
+def get_server_status_refresher() -> RefreshServerStatus:
+    return RefreshServerStatus(
+        server_repo=get_server_repository(),
+        proxmox_hosts=get_proxmox_host_repository(),
+        proxmox_client=get_proxmox_client(),
+    )
+
+
+@lru_cache()
+def get_server_expiry_extender() -> ExtendServerExpiry:
+    return ExtendServerExpiry(server_repo=get_server_repository())

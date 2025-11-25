@@ -1,4 +1,3 @@
-from typing import Optional
 from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, Field
@@ -37,7 +36,11 @@ class ServerCreate(BaseModel):
     user_id: UUID
     plan: str
     location: str
-    expire_in: Optional[int]
+    expire_in_days: int | None = Field(
+        default=None,
+        description="Optional number of days until expiration",
+        gt=0,
+    )
 
 
 class ServerRead(BaseModel):
@@ -50,15 +53,14 @@ class ServerRead(BaseModel):
     vcpu: int | None
     memory_mb: int | None
     disk_gb: int | None
-    status: ServerStatus
-    expire_in: int | None
+    expire_in_days: int | None
     expire_at: str | None
+    created_at: str
+    status: ServerStatus
     external_id: str | None
 
     @classmethod
     def from_entity(cls, server: Server) -> "ServerRead":
-        import datetime
-        print(server.created_at)
         return cls(
             id=server.id,
             owner_id=server.owner_id,
@@ -69,11 +71,16 @@ class ServerRead(BaseModel):
             vcpu=server.vcpu,
             memory_mb=server.memory_mb,
             disk_gb=server.disk_gb,
+            expire_in_days=server.expire_in_days,
+            expire_at=server.expire_at.isoformat() if server.expire_at else None,
+            created_at=server.created_at.isoformat(),
             status=server.status,
-            expire_in=server.expire_in,
-            expire_at=str(server.created_at+datetime.timedelta(days=server.expire_in)),
             external_id=server.external_id,
         )
+
+
+class ServerExtendRequest(BaseModel):
+    additional_days: int = Field(..., gt=0, description="Days to add to current expire_in_days")
 
 
 class PlanCreate(BaseModel):

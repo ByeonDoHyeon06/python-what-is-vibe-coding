@@ -16,7 +16,7 @@ class ServerRepository:
     def add(self, server: Server) -> None:
         self.db.execute(
             """
-            INSERT INTO servers (id, owner_id, plan, location, proxmox_host_id, proxmox_node, vcpu, memory_mb, disk_gb, status, created_at, expire_in, external_id)
+            INSERT INTO servers (id, owner_id, plan, location, proxmox_host_id, proxmox_node, vcpu, memory_mb, disk_gb, expire_in_days, status, created_at, external_id)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 owner_id=excluded.owner_id,
@@ -27,8 +27,8 @@ class ServerRepository:
                 vcpu=excluded.vcpu,
                 memory_mb=excluded.memory_mb,
                 disk_gb=excluded.disk_gb,
+                expire_in_days=excluded.expire_in_days,
                 status=excluded.status,
-                expire_in=excluded.expire_in,
                 external_id=excluded.external_id
             """,
             (
@@ -41,9 +41,9 @@ class ServerRepository:
                 server.vcpu,
                 server.memory_mb,
                 server.disk_gb,
+                server.expire_in_days,
                 server.status.value,
                 server.created_at.isoformat(),
-                server.expire_in,
                 server.external_id,
             ),
         )
@@ -71,8 +71,8 @@ class ServerRepository:
             vcpu=row["vcpu"],
             memory_mb=row["memory_mb"],
             disk_gb=row["disk_gb"],
+            expire_in_days=row["expire_in_days"],
             status=ServerStatus(row["status"]),
             created_at=datetime.fromisoformat(row["created_at"]),
-            expire_in=row["expire_in"],
             external_id=row["external_id"],
         )

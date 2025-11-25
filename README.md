@@ -19,16 +19,19 @@
 - `POST /users` – register a customer with `email`, `phone_number`, and optional `external_auth_id` (to link your auth provider).
 - `GET /users` – list registered customers.
 - `GET /servers/metadata/allowed` – discover configured plan specs and available locations before provisioning.
-- `POST /servers` – provision a server for a user. Body example:
+- `POST /servers` – provision a server for a user (optionally include `expire_in_days` to set the initial lifetime). Body example:
   ```json
   {
     "user_id": "<user uuid from /users>",
     "plan": "basic",
-    "location": "kr-central"
+    "location": "kr-central",
+    "expire_in_days": 30
   }
   ```
 - `GET /servers/user/{user_id}` – list servers created for a specific user.
 - `GET /servers/{server_id}` – fetch a single server.
+- `POST /servers/{server_id}/extend` – add more days to a server's lifetime; returns updated `expire_in_days` and `expire_at`.
+- Power controls: `POST /servers/{id}/start`, `/stop`, `/shutdown`, `/reboot`, `/reset`, `/suspend`, `/resume`.
 - `GET /healthz` – simple health check.
 
 ## How the Proxmox & SOLAPI adapters work
@@ -70,10 +73,10 @@ curl -X POST http://localhost:8000/users \
 # 2) Check allowed plans/locations
 curl http://localhost:8000/servers/metadata/allowed
 
-# 3) Provision a server
+# 3) Provision a server (with optional expiry window)
 curl -X POST http://localhost:8000/servers \
   -H "Content-Type: application/json" \
-  -d '{"user_id":"<uuid>","plan":"basic","location":"kr-central"}'
+  -d '{"user_id":"<uuid>","plan":"basic","location":"kr-central","expire_in_days":14}'
 ```
 
 ## End-to-end walkthrough (expected responses)
@@ -136,6 +139,9 @@ Expected response (IDs will differ):
   "vcpu": 1,
   "memory_mb": 1024,
   "disk_gb": 20,
+  "expire_in_days": 14,
+  "expire_at": "2024-01-15T12:00:00.000000",
+  "created_at": "2023-12-31T12:00:00.000000",
   "status": "active",
   "external_id": "vm-8c04a4df-1fae-4b43-8d45-b69d49fe4f57"
 }
@@ -145,8 +151,20 @@ Expected response (IDs will differ):
 # 4) Fetch the server directly (or list all servers for the user)
 curl -s http://localhost:8000/servers/8c04a4df-1fae-4b43-8d45-b69d49fe4f57 | jq
 curl -s http://localhost:8000/servers/user/0e9a8db2-4c03-4c5d-9a22-5601d2e4d4f1 | jq
+
+# 5) Power controls using the backend-issued server ID
+curl -s -X POST http://localhost:8000/servers/8c04a4df-1fae-4b43-8d45-b69d49fe4f57/stop | jq
+curl -s -X POST http://localhost:8000/servers/8c04a4df-1fae-4b43-8d45-b69d49fe4f57/start | jq
+curl -s -X POST http://localhost:8000/servers/8c04a4df-1fae-4b43-8d45-b69d49fe4f57/reboot | jq
+curl -s -X POST http://localhost:8000/servers/8c04a4df-1fae-4b43-8d45-b69d49fe4f57/shutdown | jq
+
+# 6) Extend lifetime by 7 days
+curl -s -X POST http://localhost:8000/servers/8c04a4df-1fae-4b43-8d45-b69d49fe4f57/extend \
+  -H "Content-Type: application/json" \
+  -d '{"additional_days":7}' | jq
 ```
-Each server will show its persisted state:
+Both `GET /servers/{id}` and `GET /servers/user/{user_id}` refresh each server's runtime status from Proxmox (running/stopped/etc.) before returning and persist the latest state.
+Each server will show its persisted state, created/expiry times, and Proxmox mapping:
 ```json
 [
   {
@@ -159,6 +177,9 @@ Each server will show its persisted state:
     "vcpu": 1,
     "memory_mb": 1024,
     "disk_gb": 20,
+    "expire_in_days": 21,
+    "expire_at": "2024-01-22T12:00:00.000000",
+    "created_at": "2023-12-31T12:00:00.000000",
     "status": "active",
     "external_id": "vm-8c04a4df-1fae-4b43-8d45-b69d49fe4f57"
   }

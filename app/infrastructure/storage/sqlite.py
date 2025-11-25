@@ -69,14 +69,27 @@ class SQLiteDataStore:
                 vcpu INTEGER,
                 memory_mb INTEGER,
                 disk_gb INTEGER,
+                expire_in_days INTEGER,
                 status TEXT NOT NULL,
                 created_at TEXT NOT NULL,
-                expire_in INTEGER NOT NULL,
                 external_id TEXT
             )
             """
         )
+        self._ensure_column(
+            cur,
+            table="servers",
+            column="expire_in_days",
+            ddl="INTEGER",
+        )
         self.conn.commit()
+
+    @staticmethod
+    def _ensure_column(cur: sqlite3.Cursor, table: str, column: str, ddl: str) -> None:
+        cur.execute(f"PRAGMA table_info({table})")
+        columns = {row[1] for row in cur.fetchall()}
+        if column not in columns:
+            cur.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
 
     def execute(self, query: str, params: Iterable | tuple = ()) -> None:
         self.conn.execute(query, params)
