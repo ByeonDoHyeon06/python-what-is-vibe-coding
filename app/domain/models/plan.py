@@ -14,4 +14,7 @@ class PlanSpec:
     proxmox_node: str | None = None
     template_vmid: int | None = None
     disk_storage: str | None = None
+    clone_mode: str = "full"
+    price: float | None = None
+    default_expire_days: int | None = None
     description: str | None = None

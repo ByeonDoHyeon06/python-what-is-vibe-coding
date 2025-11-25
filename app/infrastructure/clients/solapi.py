@@ -17,3 +17,9 @@ class SolapiClient:
 
         # Placeholder hook for the official client
         return None
+
+    def send_status_sms(self, to: str, message: str) -> None:
+        """Generic SMS sender for lifecycle and expiry notices."""
+
+        # Placeholder hook for the official client
+        return None

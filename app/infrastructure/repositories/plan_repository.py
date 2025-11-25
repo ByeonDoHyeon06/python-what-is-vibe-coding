@@ -13,8 +13,8 @@ class PlanRepository:
     def add(self, plan: PlanSpec) -> None:
         self.db.execute(
             """
-            INSERT INTO plans (name, vcpu, memory_mb, disk_gb, location, proxmox_host_id, proxmox_node, description, template_vmid, disk_storage)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO plans (name, vcpu, memory_mb, disk_gb, location, proxmox_host_id, proxmox_node, description, template_vmid, disk_storage, clone_mode, price, default_expire_days)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(name) DO UPDATE SET
                 vcpu=excluded.vcpu,
                 memory_mb=excluded.memory_mb,
@@ -24,7 +24,10 @@ class PlanRepository:
                 proxmox_node=excluded.proxmox_node,
                 description=excluded.description,
                 template_vmid=excluded.template_vmid,
-                disk_storage=excluded.disk_storage
+                disk_storage=excluded.disk_storage,
+                clone_mode=excluded.clone_mode,
+                price=excluded.price,
+                default_expire_days=excluded.default_expire_days
             """,
             (
                 plan.name,
@@ -37,6 +40,9 @@ class PlanRepository:
                 plan.description,
                 plan.template_vmid,
                 plan.disk_storage,
+                plan.clone_mode,
+                plan.price,
+                plan.default_expire_days,
             ),
         )
 
@@ -61,4 +67,7 @@ class PlanRepository:
             description=row["description"],
             template_vmid=row["template_vmid"],
             disk_storage=row["disk_storage"],
+            clone_mode=row["clone_mode"],
+            price=row["price"],
+            default_expire_days=row["default_expire_days"],
         )

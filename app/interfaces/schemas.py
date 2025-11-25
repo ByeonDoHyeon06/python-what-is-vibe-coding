@@ -1,3 +1,4 @@
+from enum import Enum
 from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, Field
@@ -5,7 +6,13 @@ from pydantic import BaseModel, EmailStr, Field
 from app.domain.models.plan import PlanSpec
 from app.domain.models.server import Server, ServerStatus
 from app.domain.models.proxmox_host import ProxmoxHostConfig
+from app.domain.models.upgrade import UpgradeSpec
 from app.domain.models.user import User
+
+
+class CloneMode(str, Enum):
+    FULL = "full"
+    LINKED = "linked"
 
 
 class UserCreate(BaseModel):
@@ -80,7 +87,12 @@ class ServerRead(BaseModel):
 
 
 class ServerExtendRequest(BaseModel):
+    user_id: UUID
     additional_days: int = Field(..., gt=0, description="Days to add to current expire_in_days")
+
+
+class ServerOwnerRequest(BaseModel):
+    user_id: UUID
 
 
 class PlanCreate(BaseModel):
@@ -97,6 +109,16 @@ class PlanCreate(BaseModel):
     disk_storage: str | None = Field(
         default=None, description="Preferred storage target when creating/cloning"
     )
+    clone_mode: CloneMode = Field(
+        default=CloneMode.FULL,
+        description="Choose between full or linked clone when using a template",
+    )
+    price: float | None = Field(
+        default=None, description="Optional price metadata for the plan"
+    )
+    default_expire_days: int | None = Field(
+        default=None, description="Default expiration days when user does not supply one", gt=0
+    )
     description: str | None = None
 
 
@@ -110,6 +132,9 @@ class PlanRead(BaseModel):
     proxmox_node: str | None
     template_vmid: int | None
     disk_storage: str | None
+    clone_mode: CloneMode
+    price: float | None
+    default_expire_days: int | None
     description: str | None
 
     @classmethod
@@ -145,3 +170,30 @@ class ProxmoxHostRead(BaseModel):
             node=host.node,
             location=host.location,
         )
+
+
+class UpgradeCreate(BaseModel):
+    name: str
+    add_vcpu: int = Field(0, ge=0)
+    add_memory_mb: int = Field(0, ge=0)
+    add_disk_gb: int = Field(0, ge=0)
+    price: float | None = Field(None, description="Optional price for the upgrade bundle")
+    description: str | None = None
+
+
+class UpgradeRead(BaseModel):
+    name: str
+    add_vcpu: int
+    add_memory_mb: int
+    add_disk_gb: int
+    price: float | None
+    description: str | None
+
+    @classmethod
+    def from_entity(cls, upgrade: UpgradeSpec) -> "UpgradeRead":
+        return cls(**upgrade.__dict__)
+
+
+class ServerUpgradeRequest(BaseModel):
+    user_id: UUID
+    upgrade: str = Field(..., description="Upgrade bundle name to apply")

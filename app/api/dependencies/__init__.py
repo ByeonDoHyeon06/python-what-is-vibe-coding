@@ -4,7 +4,11 @@ from app.application.services.server_orchestrator import ServerProvisionOrchestr
 from app.application.use_cases.control_server_power import ControlServerPower
 from app.application.use_cases.extend_server_expiry import ExtendServerExpiry
 from app.application.use_cases.provision_server import ProvisionServer
+
 from app.application.use_cases.refresh_server_status import RefreshServerStatus
+from app.application.use_cases.stop_expired_servers import StopExpiredServers
+from app.application.use_cases.notify_expiring_servers import NotifyExpiringServers
+from app.application.use_cases.upgrade_server_resources import UpgradeServerResources
 from app.application.use_cases.register_user import RegisterUser
 from app.domain.models.plan import PlanSpec
 from app.domain.models.proxmox_host import ProxmoxHostConfig
@@ -15,6 +19,7 @@ from app.infrastructure.config.settings import settings
 from app.infrastructure.repositories.plan_repository import PlanRepository
 from app.infrastructure.repositories.proxmox_host_repository import ProxmoxHostRepository
 from app.infrastructure.repositories.server_repository import ServerRepository
+from app.infrastructure.repositories.upgrade_repository import UpgradeRepository
 from app.infrastructure.repositories.user_repository import UserRepository
 from app.infrastructure.storage.sqlite import SQLiteDataStore
 
@@ -47,6 +52,8 @@ def get_plan_repository() -> PlanRepository:
                 location="kr-central",
                 description="Default starter plan",
                 disk_storage="local-lvm",
+                price=5_000,
+                default_expire_days=30,
             )
         )
     if not repo.get("pro"):
@@ -59,9 +66,16 @@ def get_plan_repository() -> PlanRepository:
                 location="kr-central",
                 description="Larger VM for heavier workloads",
                 disk_storage="local-lvm",
+                price=12_000,
+                default_expire_days=30,
             )
         )
     return repo
+
+
+@lru_cache()
+def get_upgrade_repository() -> UpgradeRepository:
+    return UpgradeRepository(get_datastore())
 
 
 @lru_cache()
@@ -124,6 +138,16 @@ def get_server_provisioning() -> ProvisionServer:
 
 
 @lru_cache()
+def get_server_upgrade() -> UpgradeServerResources:
+    return UpgradeServerResources(
+        server_repo=get_server_repository(),
+        upgrade_repo=get_upgrade_repository(),
+        proxmox_hosts=get_proxmox_host_repository(),
+        proxmox_client=get_proxmox_client(),
+    )
+
+
+@lru_cache()
 def get_server_power_control() -> ControlServerPower:
     return ControlServerPower(
         server_repo=get_server_repository(),
@@ -144,3 +168,22 @@ def get_server_status_refresher() -> RefreshServerStatus:
 @lru_cache()
 def get_server_expiry_extender() -> ExtendServerExpiry:
     return ExtendServerExpiry(server_repo=get_server_repository())
+
+
+@lru_cache()
+def get_expired_server_stopper() -> StopExpiredServers:
+    return StopExpiredServers(
+        server_repo=get_server_repository(),
+        proxmox_hosts=get_proxmox_host_repository(),
+        proxmox_client=get_proxmox_client(),
+    )
+
+
+@lru_cache()
+def get_expiry_notifier() -> NotifyExpiringServers:
+    return NotifyExpiringServers(
+        server_repo=get_server_repository(),
+        user_repo=get_user_repository(),
+        solapi_client=get_solapi_client(),
+        warning_days=settings.expiry_warning_days,
+    )

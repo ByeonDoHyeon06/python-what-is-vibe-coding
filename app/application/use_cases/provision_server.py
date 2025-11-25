@@ -34,6 +34,8 @@ class ProvisionServer:
         plan_spec = self.policy.resolve_plan(plan)
         host = self.policy.resolve_host(location, plan_spec)
 
+        applied_expiry = expire_in_days if expire_in_days is not None else plan_spec.default_expire_days
+
         server = Server(
             owner_id=user_id,
             plan=plan_spec.name,
@@ -43,7 +45,8 @@ class ProvisionServer:
             vcpu=plan_spec.vcpu,
             memory_mb=plan_spec.memory_mb,
             disk_gb=plan_spec.disk_gb,
-            expire_in_days=expire_in_days,
+            disk_storage=plan_spec.disk_storage,
+            expire_in_days=applied_expiry,
         )
         self.server_repo.add(server)
         self.orchestrator.provision(server, user, plan_spec, host)

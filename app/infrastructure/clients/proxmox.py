@@ -53,7 +53,7 @@ class ProxmoxClient:
                     "newid": vmid,
                     "name": vm_name,
                     "target": node,
-                    "full": 1,
+                    "full": 1 if str(plan.clone_mode).lower() != "linked" else 0,
                     "storage": plan.disk_storage or "local-lvm",
                 },
                 headers=self._headers(ticket, csrf),
@@ -133,6 +133,26 @@ class ProxmoxClient:
         )
         response.raise_for_status()
 
+    def resize_disk(
+        self, external_id: str, host: ProxmoxHostConfig, node: str | None, add_disk_gb: int
+    ) -> None:
+        """Increase disk size on the primary virtio disk."""
+
+        if add_disk_gb <= 0:
+            return None
+
+        ticket, csrf = self.authenticate(host)
+        target_node = node or host.node
+        if not target_node:
+            raise ValueError("Proxmox node required to resize VM disk")
+
+        response = self.http.post(
+            f"{host.api_url.rstrip('/')}/api2/json/nodes/{target_node}/qemu/{external_id}/resize",
+            data={"disk": "virtio0", "size": f"+{add_disk_gb}G"},
+            headers=self._headers(ticket, csrf),
+        )
+        response.raise_for_status()
+
     def shutdown_server(self, external_id: str, host: ProxmoxHostConfig, node: str | None = None) -> None:
         """Gracefully shut down a VM via ACPI."""
 
@@ -157,6 +177,40 @@ class ProxmoxClient:
 
         response = self.http.post(
             f"{host.api_url.rstrip('/')}/api2/json/nodes/{target_node}/qemu/{external_id}/status/reboot",
+            headers=self._headers(ticket, csrf),
+        )
+        response.raise_for_status()
+
+    def update_resources(
+        self,
+        external_id: str,
+        host: ProxmoxHostConfig,
+        node: str | None,
+        cores: int | None = None,
+        memory_mb: int | None = None,
+        disk_volume: str | None = None,
+    ) -> None:
+        """Update VM cores/memory/disk mapping after provisioning or upgrade."""
+
+        ticket, csrf = self.authenticate(host)
+        target_node = node or host.node
+        if not target_node:
+            raise ValueError("Proxmox node required to update VM config")
+
+        payload: dict[str, int | str] = {}
+        if cores is not None:
+            payload["cores"] = cores
+        if memory_mb is not None:
+            payload["memory"] = memory_mb
+        if disk_volume:
+            payload["virtio0"] = disk_volume
+
+        if not payload:
+            return None
+
+        response = self.http.put(
+            f"{host.api_url.rstrip('/')}/api2/json/nodes/{target_node}/qemu/{external_id}/config",
+            data=payload,
             headers=self._headers(ticket, csrf),
         )
         response.raise_for_status()

@@ -25,11 +25,13 @@ class Server:
     vcpu: int | None = None
     memory_mb: int | None = None
     disk_gb: int | None = None
+    disk_storage: str | None = None
     expire_in_days: int | None = None
     status: ServerStatus = ServerStatus.PENDING
     id: UUID = field(default_factory=uuid4)
     created_at: datetime = field(default_factory=datetime.utcnow)
     external_id: str | None = None
+    last_notified_at: datetime | None = None
 
     @property
     def expire_at(self) -> datetime | None:

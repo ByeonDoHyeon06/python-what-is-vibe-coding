@@ -19,8 +19,8 @@ class ControlServerPower:
         self.proxmox_hosts = proxmox_hosts
         self.proxmox_client = proxmox_client
 
-    def start(self, server_id: UUID) -> Server:
-        server, host, node = self._resolve_server(server_id)
+    def start(self, server_id: UUID, user_id: UUID | None = None) -> Server:
+        server, host, node = self._resolve_server(server_id, user_id=user_id)
         if not server.external_id:
             raise ValueError("Server has no Proxmox external_id; cannot start")
 
@@ -29,8 +29,8 @@ class ControlServerPower:
         self.server_repo.update(server)
         return server
 
-    def stop(self, server_id: UUID) -> Server:
-        server, host, node = self._resolve_server(server_id)
+    def stop(self, server_id: UUID, user_id: UUID | None = None) -> Server:
+        server, host, node = self._resolve_server(server_id, user_id=user_id)
         if not server.external_id:
             raise ValueError("Server has no Proxmox external_id; cannot stop")
 
@@ -39,8 +39,8 @@ class ControlServerPower:
         self.server_repo.update(server)
         return server
 
-    def reboot(self, server_id: UUID) -> Server:
-        server, host, node = self._resolve_server(server_id)
+    def reboot(self, server_id: UUID, user_id: UUID | None = None) -> Server:
+        server, host, node = self._resolve_server(server_id, user_id=user_id)
         if not server.external_id:
             raise ValueError("Server has no Proxmox external_id; cannot reboot")
 
@@ -49,8 +49,8 @@ class ControlServerPower:
         self.server_repo.update(server)
         return server
 
-    def reset(self, server_id: UUID) -> Server:
-        server, host, node = self._resolve_server(server_id)
+    def reset(self, server_id: UUID, user_id: UUID | None = None) -> Server:
+        server, host, node = self._resolve_server(server_id, user_id=user_id)
         if not server.external_id:
             raise ValueError("Server has no Proxmox external_id; cannot reset")
 
@@ -59,8 +59,8 @@ class ControlServerPower:
         self.server_repo.update(server)
         return server
 
-    def shutdown(self, server_id: UUID) -> Server:
-        server, host, node = self._resolve_server(server_id)
+    def shutdown(self, server_id: UUID, user_id: UUID | None = None) -> Server:
+        server, host, node = self._resolve_server(server_id, user_id=user_id)
         if not server.external_id:
             raise ValueError("Server has no Proxmox external_id; cannot shutdown")
 
@@ -69,8 +69,8 @@ class ControlServerPower:
         self.server_repo.update(server)
         return server
 
-    def suspend(self, server_id: UUID) -> Server:
-        server, host, node = self._resolve_server(server_id)
+    def suspend(self, server_id: UUID, user_id: UUID | None = None) -> Server:
+        server, host, node = self._resolve_server(server_id, user_id=user_id)
         if not server.external_id:
             raise ValueError("Server has no Proxmox external_id; cannot suspend")
 
@@ -79,8 +79,8 @@ class ControlServerPower:
         self.server_repo.update(server)
         return server
 
-    def resume(self, server_id: UUID) -> Server:
-        server, host, node = self._resolve_server(server_id)
+    def resume(self, server_id: UUID, user_id: UUID | None = None) -> Server:
+        server, host, node = self._resolve_server(server_id, user_id=user_id)
         if not server.external_id:
             raise ValueError("Server has no Proxmox external_id; cannot resume")
 
@@ -89,10 +89,16 @@ class ControlServerPower:
         self.server_repo.update(server)
         return server
 
-    def _resolve_server(self, server_id: UUID) -> tuple[Server, "ProxmoxHostConfig", str]:
+    def _resolve_server(self, server_id: UUID, user_id: UUID | None = None) -> tuple[Server, "ProxmoxHostConfig", str]:
+        if user_id is None:
+            raise ValueError("User id is required for power controls")
+
         server = self.server_repo.get(server_id)
         if not server:
             raise ValueError("Server not found")
+
+        if user_id and server.owner_id != user_id:
+            raise ValueError("User is not allowed to control this server")
 
         if not server.proxmox_host_id:
             raise ValueError("Server is missing Proxmox host mapping")

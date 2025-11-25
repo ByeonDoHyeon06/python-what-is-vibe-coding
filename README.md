@@ -12,14 +12,15 @@
 3. Visit the docs at [`/docs`](http://localhost:8000/docs) for interactive testing.
 
 ## Available endpoints (happy-path flow)
-- `POST /admin/plans` – admin creates/updates plan presets (vcpu, memory, disk, location, proxmox host/node mapping, optional template clone info).
+- `POST /admin/plans` – admin creates/updates plan presets (vcpu, memory, disk, clone mode full/linked, price, default expire days, Proxmox mapping, optional template + storage).
 - `GET /admin/plans` – list all configured plans.
+- `POST /admin/upgrades` / `GET /admin/upgrades` – define reusable upgrade bundles (add vCPU/RAM/disk + optional price) and list them.
 - `POST /admin/proxmox/hosts` – admin registers a Proxmox API endpoint (api_url, username/password/realm, node, location tag).
 - `GET /admin/proxmox/hosts` – list configured Proxmox endpoints.
 - `POST /users` – register a customer with `email`, `phone_number`, and optional `external_auth_id` (to link your auth provider).
 - `GET /users` – list registered customers.
-- `GET /servers/metadata/allowed` – discover configured plan specs and available locations before provisioning.
-- `POST /servers` – provision a server for a user (optionally include `expire_in_days` to set the initial lifetime). Body example:
+- `GET /servers/metadata/allowed` – discover configured plan specs, upgrade bundles, and available locations before provisioning.
+- `POST /servers` – provision a server for a user; if `expire_in_days` is omitted, the plan's `default_expire_days` is applied. Body example:
   ```json
   {
     "user_id": "<user uuid from /users>",
@@ -28,10 +29,12 @@
     "expire_in_days": 30
   }
   ```
-- `GET /servers/user/{user_id}` – list servers created for a specific user.
-- `GET /servers/{server_id}` – fetch a single server.
-- `POST /servers/{server_id}/extend` – add more days to a server's lifetime; returns updated `expire_in_days` and `expire_at`.
-- Power controls: `POST /servers/{id}/start`, `/stop`, `/shutdown`, `/reboot`, `/reset`, `/suspend`, `/resume`.
+- `GET /servers/user/{user_id}` – list servers created for a specific user (refreshes status from Proxmox on read).
+- `GET /servers/{server_id}` – fetch a single server (refreshes status from Proxmox on read).
+- `POST /servers/{server_id}/extend` – add more days; requires the owning `user_id` in the body.
+- Power controls: `POST /servers/{id}/start|stop|shutdown|reboot|reset|suspend|resume` – **each requires the owning `user_id` in the body**.
+- `POST /servers/{id}/upgrade` – apply a named upgrade bundle (owner `user_id` required).
+- Automatic expiry guard: nightly scheduler stops expired servers and sends SOLAPI reminders `EXPIRY_WARNING_DAYS` (default 3) before `expire_at`.
 - `GET /healthz` – simple health check.
 
 ## How the Proxmox & SOLAPI adapters work
@@ -114,6 +117,9 @@ Expected response:
       "disk_gb": 20,
       "proxmox_host_id": "default",
       "proxmox_node": null,
+      "template_vmid": null,
+      "disk_storage": "local-lvm",
+      "clone_mode": "full",
       "description": "Default starter plan"
     }
   ],
@@ -152,16 +158,24 @@ Expected response (IDs will differ):
 curl -s http://localhost:8000/servers/8c04a4df-1fae-4b43-8d45-b69d49fe4f57 | jq
 curl -s http://localhost:8000/servers/user/0e9a8db2-4c03-4c5d-9a22-5601d2e4d4f1 | jq
 
-# 5) Power controls using the backend-issued server ID
-curl -s -X POST http://localhost:8000/servers/8c04a4df-1fae-4b43-8d45-b69d49fe4f57/stop | jq
-curl -s -X POST http://localhost:8000/servers/8c04a4df-1fae-4b43-8d45-b69d49fe4f57/start | jq
-curl -s -X POST http://localhost:8000/servers/8c04a4df-1fae-4b43-8d45-b69d49fe4f57/reboot | jq
-curl -s -X POST http://localhost:8000/servers/8c04a4df-1fae-4b43-8d45-b69d49fe4f57/shutdown | jq
+# 5) Power controls using the backend-issued server ID (owner user_id is required)
+curl -s -X POST http://localhost:8000/servers/8c04a4df-1fae-4b43-8d45-b69d49fe4f57/stop \
+  -H "Content-Type: application/json" \
+  -d '{"user_id":"0e9a8db2-4c03-4c5d-9a22-5601d2e4d4f1"}' | jq
+curl -s -X POST http://localhost:8000/servers/8c04a4df-1fae-4b43-8d45-b69d49fe4f57/start \
+  -H "Content-Type: application/json" \
+  -d '{"user_id":"0e9a8db2-4c03-4c5d-9a22-5601d2e4d4f1"}' | jq
+curl -s -X POST http://localhost:8000/servers/8c04a4df-1fae-4b43-8d45-b69d49fe4f57/reboot \
+  -H "Content-Type: application/json" \
+  -d '{"user_id":"0e9a8db2-4c03-4c5d-9a22-5601d2e4d4f1"}' | jq
+curl -s -X POST http://localhost:8000/servers/8c04a4df-1fae-4b43-8d45-b69d49fe4f57/shutdown \
+  -H "Content-Type: application/json" \
+  -d '{"user_id":"0e9a8db2-4c03-4c5d-9a22-5601d2e4d4f1"}' | jq
 
-# 6) Extend lifetime by 7 days
+# 6) Extend lifetime by 7 days (owner user_id required)
 curl -s -X POST http://localhost:8000/servers/8c04a4df-1fae-4b43-8d45-b69d49fe4f57/extend \
   -H "Content-Type: application/json" \
-  -d '{"additional_days":7}' | jq
+  -d '{"user_id":"0e9a8db2-4c03-4c5d-9a22-5601d2e4d4f1","additional_days":7}' | jq
 ```
 Both `GET /servers/{id}` and `GET /servers/user/{user_id}` refresh each server's runtime status from Proxmox (running/stopped/etc.) before returning and persist the latest state.
 Each server will show its persisted state, created/expiry times, and Proxmox mapping:

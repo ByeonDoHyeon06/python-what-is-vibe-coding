@@ -40,7 +40,22 @@ class SQLiteDataStore:
                 proxmox_node TEXT,
                 description TEXT,
                 template_vmid INTEGER,
-                disk_storage TEXT
+                disk_storage TEXT,
+                clone_mode TEXT DEFAULT 'full',
+                price REAL,
+                default_expire_days INTEGER
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS upgrades (
+                name TEXT PRIMARY KEY,
+                add_vcpu INTEGER DEFAULT 0,
+                add_memory_mb INTEGER DEFAULT 0,
+                add_disk_gb INTEGER DEFAULT 0,
+                price REAL,
+                description TEXT
             )
             """
         )
@@ -69,10 +84,12 @@ class SQLiteDataStore:
                 vcpu INTEGER,
                 memory_mb INTEGER,
                 disk_gb INTEGER,
+                disk_storage TEXT,
                 expire_in_days INTEGER,
                 status TEXT NOT NULL,
                 created_at TEXT NOT NULL,
-                external_id TEXT
+                external_id TEXT,
+                last_notified_at TEXT
             )
             """
         )
@@ -81,6 +98,23 @@ class SQLiteDataStore:
             table="servers",
             column="expire_in_days",
             ddl="INTEGER",
+        )
+        self._ensure_column(
+            cur,
+            table="plans",
+            column="clone_mode",
+            ddl="TEXT DEFAULT 'full'",
+        )
+        self._ensure_column(cur, table="plans", column="price", ddl="REAL")
+        self._ensure_column(
+            cur,
+            table="plans",
+            column="default_expire_days",
+            ddl="INTEGER",
+        )
+        self._ensure_column(cur, table="servers", column="disk_storage", ddl="TEXT")
+        self._ensure_column(
+            cur, table="servers", column="last_notified_at", ddl="TEXT"
         )
         self.conn.commit()
 

@@ -1,3 +1,5 @@
+import httpx
+
 from app.domain.models.plan import PlanSpec
 from app.domain.models.proxmox_host import ProxmoxHostConfig
 from app.domain.models.server import Server, ServerStatus
@@ -34,6 +36,14 @@ class ServerProvisionOrchestrator:
             server.status = ServerStatus.PROVISIONING
             self.server_repo.update(server)
 
+            self.solapi_client.send_status_sms(
+                to=user.phone_number,
+                message=(
+                    f"{user.email}님, 서버 설정이 시작되었습니다. "
+                    f"플랜: {server.plan}, 위치: {server.location}"
+                ),
+            )
+
             external_id = self.proxmox_client.provision_server(server, plan=plan, host=host)
             server.external_id = external_id
 
@@ -47,9 +57,23 @@ class ServerProvisionOrchestrator:
                     f"ID: {server.external_id}, 플랜: {server.plan}, 위치: {server.location}"
                 ),
             )
+        except httpx.TimeoutException as exc:
+            server.status = ServerStatus.FAILED
+            self.server_repo.update(server)
+            self.solapi_client.send_status_sms(
+                to=user.phone_number,
+                message=f"{user.email}님, 서버 설정이 지연되었습니다. 잠시 후 다시 확인해주세요.",
+            )
+            raise ValueError("Provisioning timed out; please retry") from exc
         except Exception as exc:  # noqa: BLE001
             self._rollback(server)
-            raise exc
+            server.status = ServerStatus.FAILED
+            self.server_repo.update(server)
+            self.solapi_client.send_status_sms(
+                to=user.phone_number,
+                message=f"{user.email}님, 서버 생성 중 오류가 발생했습니다. 지원팀에 문의해주세요.",
+            )
+            raise ValueError("Provisioning failed; see server status") from exc
 
     def _rollback(self, server: Server) -> None:
         if server.external_id and server.proxmox_host_id:
