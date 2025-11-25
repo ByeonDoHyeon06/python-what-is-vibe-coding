@@ -1,10 +1,10 @@
- (cd "$(git rev-parse --show-toplevel)" && git apply --3way <<'EOF' 
+ (cd "$(git rev-parse --show-toplevel)" && git apply --3way <<'EOF'
 diff --git a/README.md b/README.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..ead843dea90f7b950b98e99ae939ce7e2b38ee4c
+index 0000000000000000000000000000000000000000..eccc604481df6b657d7786ea06f2074bfd86a101
 --- /dev/null
 +++ b/README.md
-@@ -0,0 +1,58 @@
+@@ -0,0 +1,177 @@
 +# VibeCoding Hosting Backend (FastAPI)
 +
 +## Getting started
@@ -19,9 +19,13 @@ index 0000000000000000000000000000000000000000..ead843dea90f7b950b98e99ae939ce7e
 +3. Visit the docs at [`/docs`](http://localhost:8000/docs) for interactive testing.
 +
 +## Available endpoints (happy-path flow)
-+- `POST /users` – register a customer with `email` and `phone_number`.
++- `POST /admin/plans` – admin creates/updates plan presets (vcpu, memory, disk, location, proxmox host/node mapping).
++- `GET /admin/plans` – list all configured plans.
++- `POST /admin/proxmox/hosts` – admin registers a Proxmox API endpoint (api_url, username/password/realm, node, location tag).
++- `GET /admin/proxmox/hosts` – list configured Proxmox endpoints.
++- `POST /users` – register a customer with `email`, `phone_number`, and optional `external_auth_id` (to link your auth provider).
 +- `GET /users` – list registered customers.
-+- `GET /servers/metadata/allowed` – discover the allowed `plans` and `locations` enforced by the provisioning policy.
++- `GET /servers/metadata/allowed` – discover configured plan specs and available locations before provisioning.
 +- `POST /servers` – provision a server for a user. Body example:
 +  ```json
 +  {
@@ -35,16 +39,34 @@ index 0000000000000000000000000000000000000000..ead843dea90f7b950b98e99ae939ce7e
 +- `GET /healthz` – simple health check.
 +
 +## How the Proxmox & SOLAPI adapters work
-+- `app/infrastructure/clients/proxmox.py` – wraps calls to the Proxmox HTTP API. Replace the placeholder logic in `provision_server` / `destroy_server` with real requests (e.g., using `proxmoxer` or `requests`). The client already pulls auth/token values from environment variables (`PROXMOX_HOST`, `PROXMOX_TOKEN_ID`, `PROXMOX_TOKEN_SECRET`).
++- `app/infrastructure/clients/proxmox.py` – logs in with username/password (realm defaults to `pam`) to fetch a ticket/CSRF token, then hits the Proxmox API to create VMs on the configured node. The host/node credentials come from the admin-managed catalog (or the fallback `PROXMOX_*` env values if provided).
 +- `app/infrastructure/clients/solapi.py` – place to call the official SOLAPI SDK. It reads `SOLAPI_KEY`, `SOLAPI_SECRET`, and `SOLAPI_FROM`. Implement SMS sending in `send_provisioning_sms`.
 +
 +Both clients are injected into the saga orchestrator (`app/application/services/server_orchestrator.py`), which sets the server status, calls Proxmox, and sends an SMS. If an exception occurs, the orchestrator rolls back by calling `destroy_server` and marking the server as `ROLLED_BACK`.
 +
 +## Configuration
 +- Defaults live in `app/infrastructure/config/settings.py` and are overrideable via environment variables or a local `.env` file.
-+- Provisioning policy allows `basic`/`pro` plans and `kr-central`/`jp-east` locations by default; adjust in `app/api/dependencies.py` or `app/domain/services/provisioning_policy.py` as needed.
++- Proxmox defaults (used only if no admin hosts are registered):
++  - `PROXMOX_HOST` (e.g., `https://proxmox.local`)
++  - `PROXMOX_USERNAME`
++  - `PROXMOX_PASSWORD`
++  - `PROXMOX_REALM` (defaults to `pam`)
++- Provisioning policy uses the admin-managed plan catalog and Proxmox host catalog; the metadata endpoint exposes what is currently configured.
 +
 +## Example cURL
++Bootstrap one host/plan via admin APIs (optional if you rely on `.env` defaults):
++```bash
++# Register a Proxmox endpoint with username/password auth
++curl -X POST http://localhost:8000/admin/proxmox/hosts \
++  -H "Content-Type: application/json" \
++  -d '{"id":"pve1","api_url":"https://proxmox.local","username":"root","password":"changeme","realm":"pam","node":"pve","location":"kr-central"}'
++
++# Register a plan bound to that host
++curl -X POST http://localhost:8000/admin/plans \
++  -H "Content-Type: application/json" \
++  -d '{"name":"basic","vcpu":1,"memory_mb":1024,"disk_gb":20,"location":"kr-central","proxmox_host_id":"pve1","proxmox_node":"pve"}'
++```
++
 +```bash
 +# 1) Register a user
 +curl -X POST http://localhost:8000/users \
@@ -58,6 +80,103 @@ index 0000000000000000000000000000000000000000..ead843dea90f7b950b98e99ae939ce7e
 +curl -X POST http://localhost:8000/servers \
 +  -H "Content-Type: application/json" \
 +  -d '{"user_id":"<uuid>","plan":"basic","location":"kr-central"}'
++```
++
++## End-to-end walkthrough (expected responses)
++Assuming the app is running locally on port `8000`:
++
++```bash
++# 1) Register a user
++curl -s -X POST http://localhost:8000/users \
++  -H "Content-Type: application/json" \
++  -d '{"email":"demo@example.com","phone_number":"01099998888"}' | jq
++```
++Expected response:
++```json
++{
++  "id": "0e9a8db2-4c03-4c5d-9a22-5601d2e4d4f1",
++  "email": "demo@example.com",
++  "phone_number": "01099998888",
++  "external_auth_id": null
++}
++```
++
++```bash
++# 2) See allowed plans/locations before provisioning
++curl -s http://localhost:8000/servers/metadata/allowed | jq
++```
++Expected response:
++```json
++{
++  "plans": [
++    {
++      "name": "basic",
++      "location": "kr-central",
++      "vcpu": 1,
++      "memory_mb": 1024,
++      "disk_gb": 20,
++      "proxmox_host_id": "default",
++      "proxmox_node": null,
++      "description": "Default starter plan"
++    }
++  ],
++  "locations": ["kr-central"]
++}
++```
++
++```bash
++# 3) Provision a server for the user
++curl -s -X POST http://localhost:8000/servers \
++  -H "Content-Type: application/json" \
++  -d '{"user_id":"0e9a8db2-4c03-4c5d-9a22-5601d2e4d4f1","plan":"basic","location":"kr-central"}' | jq
++```
++Expected response (IDs will differ):
++```json
++{
++  "id": "8c04a4df-1fae-4b43-8d45-b69d49fe4f57",
++  "owner_id": "0e9a8db2-4c03-4c5d-9a22-5601d2e4d4f1",
++  "plan": "basic",
++  "location": "kr-central",
++  "proxmox_host_id": "default",
++  "proxmox_node": null,
++  "vcpu": 1,
++  "memory_mb": 1024,
++  "disk_gb": 20,
++  "status": "active",
++  "external_id": "vm-8c04a4df-1fae-4b43-8d45-b69d49fe4f57"
++}
++```
++
++```bash
++# 4) Fetch the server directly (or list all servers for the user)
++curl -s http://localhost:8000/servers/8c04a4df-1fae-4b43-8d45-b69d49fe4f57 | jq
++curl -s http://localhost:8000/servers/user/0e9a8db2-4c03-4c5d-9a22-5601d2e4d4f1 | jq
++```
++Each server will show its persisted state:
++```json
++[
++  {
++    "id": "8c04a4df-1fae-4b43-8d45-b69d49fe4f57",
++    "owner_id": "0e9a8db2-4c03-4c5d-9a22-5601d2e4d4f1",
++    "plan": "basic",
++    "location": "kr-central",
++    "proxmox_host_id": "default",
++    "proxmox_node": null,
++    "vcpu": 1,
++    "memory_mb": 1024,
++    "disk_gb": 20,
++    "status": "active",
++    "external_id": "vm-8c04a4df-1fae-4b43-8d45-b69d49fe4f57"
++  }
++]
++```
++
++```bash
++# 5) Confirm the health endpoint if needed
++curl -s http://localhost:8000/healthz
++```
++```json
++{"status":"ok"}
 +```
 +
 +## Notes
@@ -113,18 +232,23 @@ HcmV?d00001
 
 diff --git a/app/api/dependencies/__init__.py b/app/api/dependencies/__init__.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..3f41a577d29b583f03abe7af21da6656348637f2
+index 0000000000000000000000000000000000000000..a73dfc395ad13d41116f7f6faacfdba019e14613
 --- /dev/null
 +++ b/app/api/dependencies/__init__.py
-@@ -0,0 +1,59 @@
+@@ -0,0 +1,112 @@
 +from functools import lru_cache
 +
 +from app.application.services.server_orchestrator import ServerProvisionOrchestrator
 +from app.application.use_cases.provision_server import ProvisionServer
 +from app.application.use_cases.register_user import RegisterUser
++from app.domain.models.plan import PlanSpec
++from app.domain.models.proxmox_host import ProxmoxHostConfig
 +from app.domain.services.provisioning_policy import ProvisioningPolicy
 +from app.infrastructure.clients.proxmox import ProxmoxClient
 +from app.infrastructure.clients.solapi import SolapiClient
++from app.infrastructure.config.settings import settings
++from app.infrastructure.repositories.plan_repository import PlanRepository
++from app.infrastructure.repositories.proxmox_host_repository import ProxmoxHostRepository
 +from app.infrastructure.repositories.server_repository import ServerRepository
 +from app.infrastructure.repositories.user_repository import UserRepository
 +
@@ -140,8 +264,54 @@ index 0000000000000000000000000000000000000000..3f41a577d29b583f03abe7af21da6656
 +
 +
 +@lru_cache()
++def get_plan_repository() -> PlanRepository:
++    repo = PlanRepository()
++    if not repo.get("basic"):
++        repo.add(
++            PlanSpec(
++                name="basic",
++                vcpu=1,
++                memory_mb=1024,
++                disk_gb=20,
++                location="kr-central",
++                description="Default starter plan",
++            )
++        )
++    if not repo.get("pro"):
++        repo.add(
++            PlanSpec(
++                name="pro",
++                vcpu=2,
++                memory_mb=4096,
++                disk_gb=80,
++                location="kr-central",
++                description="Larger VM for heavier workloads",
++            )
++        )
++    return repo
++
++
++@lru_cache()
++def get_proxmox_host_repository() -> ProxmoxHostRepository:
++    repo = ProxmoxHostRepository()
++    if settings.proxmox_password:
++        repo.add(
++            ProxmoxHostConfig(
++                id="default",
++                api_url=settings.proxmox_host,
++                username=settings.proxmox_username,
++                password=settings.proxmox_password,
++                realm=settings.proxmox_realm,
++                node=None,
++                location="kr-central",
++            )
++        )
++    return repo
++
++
++@lru_cache()
 +def get_provisioning_policy() -> ProvisioningPolicy:
-+    return ProvisioningPolicy(allowed_locations={"kr-central", "jp-east"}, allowed_plans={"basic", "pro"})
++    return ProvisioningPolicy(plans=get_plan_repository(), proxmox_hosts=get_proxmox_host_repository())
 +
 +
 +@lru_cache()
@@ -158,6 +328,7 @@ index 0000000000000000000000000000000000000000..3f41a577d29b583f03abe7af21da6656
 +def get_server_orchestrator() -> ServerProvisionOrchestrator:
 +    return ServerProvisionOrchestrator(
 +        server_repo=get_server_repository(),
++        proxmox_hosts=get_proxmox_host_repository(),
 +        proxmox_client=get_proxmox_client(),
 +        solapi_client=get_solapi_client(),
 +    )
@@ -173,6 +344,7 @@ index 0000000000000000000000000000000000000000..3f41a577d29b583f03abe7af21da6656
 +    return ProvisionServer(
 +        server_repo=get_server_repository(),
 +        user_repo=get_user_repository(),
++        proxmox_hosts=get_proxmox_host_repository(),
 +        policy=get_provisioning_policy(),
 +        orchestrator=get_server_orchestrator(),
 +    )
@@ -282,21 +454,69 @@ wuD2XuHN@&*?dI_<zw%kIb~{|VJwzCPiW7OLPVN$&VQzrekh{2-oWv~t2l1Ap<NyEw
 literal 0
 HcmV?d00001
 
+diff --git a/app/api/routes/admin.py b/app/api/routes/admin.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..68cfd35d86f532beb1e2ad38c38100e1ecd56134
+--- /dev/null
++++ b/app/api/routes/admin.py
+@@ -0,0 +1,39 @@
++from fastapi import APIRouter, Depends
++
++from app.api.dependencies import get_plan_repository, get_proxmox_host_repository
++from app.domain.models.plan import PlanSpec
++from app.domain.models.proxmox_host import ProxmoxHostConfig
++from app.infrastructure.repositories.plan_repository import PlanRepository
++from app.infrastructure.repositories.proxmox_host_repository import ProxmoxHostRepository
++from app.interfaces.schemas import (
++    PlanCreate,
++    PlanRead,
++    ProxmoxHostCreate,
++    ProxmoxHostRead,
++)
++
++router = APIRouter(prefix="/admin", tags=["admin"])
++
++
++@router.post("/plans", response_model=PlanRead)
++def create_plan(payload: PlanCreate, repo: PlanRepository = Depends(get_plan_repository)):
++    plan = PlanSpec(**payload.dict())
++    repo.add(plan)
++    return PlanRead.from_entity(plan)
++
++
++@router.get("/plans", response_model=list[PlanRead])
++def list_plans(repo: PlanRepository = Depends(get_plan_repository)):
++    return [PlanRead.from_entity(plan) for plan in repo.list()]
++
++
++@router.post("/proxmox/hosts", response_model=ProxmoxHostRead)
++def add_proxmox_host(payload: ProxmoxHostCreate, repo: ProxmoxHostRepository = Depends(get_proxmox_host_repository)):
++    host = ProxmoxHostConfig(**payload.dict())
++    repo.add(host)
++    return ProxmoxHostRead.from_entity(host)
++
++
++@router.get("/proxmox/hosts", response_model=list[ProxmoxHostRead])
++def list_proxmox_hosts(repo: ProxmoxHostRepository = Depends(get_proxmox_host_repository)):
++    return [ProxmoxHostRead.from_entity(host) for host in repo.list()]
 diff --git a/app/api/routes/servers.py b/app/api/routes/servers.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..1aa0d2167448479749c95c00f1163308bff97b05
+index 0000000000000000000000000000000000000000..921b65cb8815b2c4b1bb16c34b2952edbfc4c259
 --- /dev/null
 +++ b/app/api/routes/servers.py
-@@ -0,0 +1,53 @@
+@@ -0,0 +1,67 @@
 +from uuid import UUID
 +
 +from fastapi import APIRouter, Depends, HTTPException
 +
 +from app.api.dependencies import (
-+    get_provisioning_policy,
++    get_plan_repository,
++    get_proxmox_host_repository,
 +    get_server_provisioning,
 +    get_server_repository,
 +)
++from app.infrastructure.repositories.plan_repository import PlanRepository
++from app.infrastructure.repositories.proxmox_host_repository import ProxmoxHostRepository
 +from app.infrastructure.repositories.server_repository import ServerRepository
 +from app.interfaces.schemas import ServerCreate, ServerRead
 +
@@ -322,16 +542,27 @@ index 0000000000000000000000000000000000000000..1aa0d2167448479749c95c00f1163308
 +
 +
 +@router.get("/metadata/allowed", tags=["metadata"])
-+def get_allowed_plans_and_locations(policy=Depends(get_provisioning_policy)):
-+    """Expose the whitelisted locations/plans that the policy enforces.
-+
-+    This gives the client a way to discover what values are accepted before calling
-+    the provisioning endpoint.
-+    """
++def get_allowed_plans_and_locations(
++    plans: PlanRepository = Depends(get_plan_repository),
++    hosts: ProxmoxHostRepository = Depends(get_proxmox_host_repository),
++):
++    """Expose discoverable provisioning metadata (plans + Proxmox locations)."""
 +
 +    return {
-+        "locations": sorted(policy.allowed_locations),
-+        "plans": sorted(policy.allowed_plans),
++        "plans": [
++            {
++                "name": plan.name,
++                "location": plan.location,
++                "vcpu": plan.vcpu,
++                "memory_mb": plan.memory_mb,
++                "disk_gb": plan.disk_gb,
++                "proxmox_host_id": plan.proxmox_host_id,
++                "proxmox_node": plan.proxmox_node,
++                "description": plan.description,
++            }
++            for plan in plans.list()
++        ],
++        "locations": sorted({host.location for host in hosts.list()}),
 +    }
 +
 +
@@ -343,10 +574,10 @@ index 0000000000000000000000000000000000000000..1aa0d2167448479749c95c00f1163308
 +    return ServerRead.from_entity(server)
 diff --git a/app/api/routes/users.py b/app/api/routes/users.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..ffc73b0cb0450a630f196a76106876cf2aac2d27
+index 0000000000000000000000000000000000000000..4f0e94fd7d822bbb3c3481c16a8756b0c5c05ea6
 --- /dev/null
 +++ b/app/api/routes/users.py
-@@ -0,0 +1,21 @@
+@@ -0,0 +1,25 @@
 +from fastapi import APIRouter, Depends
 +
 +from app.api.dependencies import get_user_registration, get_user_repository
@@ -361,7 +592,11 @@ index 0000000000000000000000000000000000000000..ffc73b0cb0450a630f196a76106876cf
 +    payload: UserCreate,
 +    register = Depends(get_user_registration),
 +):
-+    user = register.execute(email=payload.email, phone_number=payload.phone_number)
++    user = register.execute(
++        email=payload.email,
++        phone_number=payload.phone_number,
++        external_auth_id=payload.external_auth_id,
++    )
 +    return UserRead.from_entity(user)
 +
 +
@@ -429,14 +664,17 @@ HcmV?d00001
 
 diff --git a/app/application/services/server_orchestrator.py b/app/application/services/server_orchestrator.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..321e15a50e478107a3341d6996ed4ca74c604250
+index 0000000000000000000000000000000000000000..403c242227ff05b10ae064325fd5fb34d1f8a085
 --- /dev/null
 +++ b/app/application/services/server_orchestrator.py
-@@ -0,0 +1,53 @@
+@@ -0,0 +1,61 @@
++from app.domain.models.plan import PlanSpec
++from app.domain.models.proxmox_host import ProxmoxHostConfig
 +from app.domain.models.server import Server, ServerStatus
 +from app.domain.models.user import User
 +from app.infrastructure.clients.proxmox import ProxmoxClient
 +from app.infrastructure.clients.solapi import SolapiClient
++from app.infrastructure.repositories.proxmox_host_repository import ProxmoxHostRepository
 +from app.infrastructure.repositories.server_repository import ServerRepository
 +
 +
@@ -452,19 +690,21 @@ index 0000000000000000000000000000000000000000..321e15a50e478107a3341d6996ed4ca7
 +    def __init__(
 +        self,
 +        server_repo: ServerRepository,
++        proxmox_hosts: ProxmoxHostRepository,
 +        proxmox_client: ProxmoxClient,
 +        solapi_client: SolapiClient,
 +    ):
 +        self.server_repo = server_repo
++        self.proxmox_hosts = proxmox_hosts
 +        self.proxmox_client = proxmox_client
 +        self.solapi_client = solapi_client
 +
-+    def provision(self, server: Server, user: User) -> None:
++    def provision(self, server: Server, user: User, plan: PlanSpec, host: ProxmoxHostConfig) -> None:
 +        try:
 +            server.status = ServerStatus.PROVISIONING
 +            self.server_repo.update(server)
 +
-+            external_id = self.proxmox_client.provision_server(server)
++            external_id = self.proxmox_client.provision_server(server, plan=plan, host=host)
 +            server.external_id = external_id
 +
 +            server.status = ServerStatus.ACTIVE
@@ -482,8 +722,11 @@ index 0000000000000000000000000000000000000000..321e15a50e478107a3341d6996ed4ca7
 +            raise exc
 +
 +    def _rollback(self, server: Server) -> None:
-+        if server.external_id:
-+            self.proxmox_client.destroy_server(server.external_id)
++        if server.external_id and server.proxmox_host_id:
++            host = self.proxmox_hosts.get(server.proxmox_host_id)
++            if host:
++                node = server.proxmox_node or host.node
++                self.proxmox_client.destroy_server(server.external_id, host=host, node=node)
 +        server.status = ServerStatus.ROLLED_BACK
 +        self.server_repo.update(server)
 diff --git a/app/application/use_cases/__pycache__/provision_server.cpython-311.pyc b/app/application/use_cases/__pycache__/provision_server.cpython-311.pyc
@@ -543,14 +786,16 @@ HcmV?d00001
 
 diff --git a/app/application/use_cases/provision_server.py b/app/application/use_cases/provision_server.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..c40adf093977c1480dec9b5cd50e8e8a3176a063
+index 0000000000000000000000000000000000000000..0169d5516b463c5572644450535e8405dd371e89
 --- /dev/null
 +++ b/app/application/use_cases/provision_server.py
-@@ -0,0 +1,34 @@
+@@ -0,0 +1,49 @@
 +from uuid import UUID
 +
 +from app.domain.models.server import Server
 +from app.domain.services.provisioning_policy import ProvisioningPolicy
++from app.infrastructure.repositories.plan_repository import PlanRepository
++from app.infrastructure.repositories.proxmox_host_repository import ProxmoxHostRepository
 +from app.infrastructure.repositories.server_repository import ServerRepository
 +from app.infrastructure.repositories.user_repository import UserRepository
 +from app.application.services.server_orchestrator import ServerProvisionOrchestrator
@@ -563,11 +808,13 @@ index 0000000000000000000000000000000000000000..c40adf093977c1480dec9b5cd50e8e8a
 +        self,
 +        server_repo: ServerRepository,
 +        user_repo: UserRepository,
++        proxmox_hosts: ProxmoxHostRepository,
 +        policy: ProvisioningPolicy,
 +        orchestrator: ServerProvisionOrchestrator,
 +    ):
 +        self.server_repo = server_repo
 +        self.user_repo = user_repo
++        self.proxmox_hosts = proxmox_hosts
 +        self.policy = policy
 +        self.orchestrator = orchestrator
 +
@@ -576,14 +823,25 @@ index 0000000000000000000000000000000000000000..c40adf093977c1480dec9b5cd50e8e8a
 +        if not user:
 +            raise ValueError("User not found")
 +
-+        server = Server(owner_id=user_id, plan=plan, location=location)
-+        self.policy.validate(server)
++        plan_spec = self.policy.resolve_plan(plan)
++        host = self.policy.resolve_host(location, plan_spec)
++
++        server = Server(
++            owner_id=user_id,
++            plan=plan_spec.name,
++            location=location,
++            proxmox_host_id=plan_spec.proxmox_host_id or host.id,
++            proxmox_node=plan_spec.proxmox_node or host.node,
++            vcpu=plan_spec.vcpu,
++            memory_mb=plan_spec.memory_mb,
++            disk_gb=plan_spec.disk_gb,
++        )
 +        self.server_repo.add(server)
-+        self.orchestrator.provision(server, user)
++        self.orchestrator.provision(server, user, plan_spec, host)
 +        return server
 diff --git a/app/application/use_cases/register_user.py b/app/application/use_cases/register_user.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..339c2695ab48cf9b23df2d89270b84c0850ca5a6
+index 0000000000000000000000000000000000000000..bf89a8899de8bf183281e01d20f936d9893cb509
 --- /dev/null
 +++ b/app/application/use_cases/register_user.py
 @@ -0,0 +1,14 @@
@@ -597,8 +855,8 @@ index 0000000000000000000000000000000000000000..339c2695ab48cf9b23df2d89270b84c0
 +    def __init__(self, repository: UserRepository):
 +        self.repository = repository
 +
-+    def execute(self, email: str, phone_number: str) -> User:
-+        user = User(email=email, phone_number=phone_number)
++    def execute(self, email: str, phone_number: str, external_auth_id: str | None = None) -> User:
++        user = User(email=email, phone_number=phone_number, external_auth_id=external_auth_id)
 +        self.repository.add(user)
 +        return user
 diff --git a/app/domain/__init__.py b/app/domain/__init__.py
@@ -666,12 +924,53 @@ Ie^3<s7tdGrCjbBd
 literal 0
 HcmV?d00001
 
+diff --git a/app/domain/models/plan.py b/app/domain/models/plan.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..ee86ddb6bd0872b4bb3d56788f2507464dc84532
+--- /dev/null
++++ b/app/domain/models/plan.py
+@@ -0,0 +1,15 @@
++from dataclasses import dataclass
++
++
++@dataclass
++class PlanSpec:
++    """Represents an admin-defined hosting plan with performance presets."""
++
++    name: str
++    vcpu: int
++    memory_mb: int
++    disk_gb: int
++    location: str
++    proxmox_host_id: str | None = None
++    proxmox_node: str | None = None
++    description: str | None = None
+diff --git a/app/domain/models/proxmox_host.py b/app/domain/models/proxmox_host.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..aa80d3e8f81eb04e50cbdba1d1dd55420f2a1463
+--- /dev/null
++++ b/app/domain/models/proxmox_host.py
+@@ -0,0 +1,14 @@
++from dataclasses import dataclass
++
++
++@dataclass
++class ProxmoxHostConfig:
++    """Credentials and topology for a Proxmox API endpoint."""
++
++    id: str
++    api_url: str
++    username: str
++    password: str
++    realm: str = "pam"
++    node: str | None = None
++    location: str = "kr-central"
 diff --git a/app/domain/models/server.py b/app/domain/models/server.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..fb1a052be1d16965ce6de5a7574454ab9c689a79
+index 0000000000000000000000000000000000000000..4a586b472165cd8f3d693ba92d56b6c60b5ba337
 --- /dev/null
 +++ b/app/domain/models/server.py
-@@ -0,0 +1,25 @@
+@@ -0,0 +1,30 @@
 +from dataclasses import dataclass, field
 +from datetime import datetime
 +from enum import Enum
@@ -693,16 +992,21 @@ index 0000000000000000000000000000000000000000..fb1a052be1d16965ce6de5a7574454ab
 +    owner_id: UUID
 +    plan: str
 +    location: str
++    proxmox_host_id: str | None = None
++    proxmox_node: str | None = None
++    vcpu: int | None = None
++    memory_mb: int | None = None
++    disk_gb: int | None = None
 +    status: ServerStatus = ServerStatus.PENDING
 +    id: UUID = field(default_factory=uuid4)
 +    created_at: datetime = field(default_factory=datetime.utcnow)
 +    external_id: str | None = None
 diff --git a/app/domain/models/user.py b/app/domain/models/user.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..5bd9e372e3095877806cc1433acedbff35eb2294
+index 0000000000000000000000000000000000000000..5bc4b62608903bb1b8cc245043b4050031c1f892
 --- /dev/null
 +++ b/app/domain/models/user.py
-@@ -0,0 +1,13 @@
+@@ -0,0 +1,14 @@
 +from dataclasses import dataclass, field
 +from datetime import datetime
 +from uuid import UUID, uuid4
@@ -714,6 +1018,7 @@ index 0000000000000000000000000000000000000000..5bd9e372e3095877806cc1433acedbff
 +
 +    email: str
 +    phone_number: str
++    external_auth_id: str | None = None
 +    id: UUID = field(default_factory=uuid4)
 +    created_at: datetime = field(default_factory=datetime.utcnow)
 diff --git a/app/domain/services/__pycache__/provisioning_policy.cpython-311.pyc b/app/domain/services/__pycache__/provisioning_policy.cpython-311.pyc
@@ -744,27 +1049,45 @@ HcmV?d00001
 
 diff --git a/app/domain/services/provisioning_policy.py b/app/domain/services/provisioning_policy.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..80561319745dc5bd0ca360851716917fdc6389e6
+index 0000000000000000000000000000000000000000..0d04c5dab3097cbda043a84c33d5a646b47137ce
 --- /dev/null
 +++ b/app/domain/services/provisioning_policy.py
-@@ -0,0 +1,17 @@
-+from typing import Iterable
-+
-+from app.domain.models.server import Server
+@@ -0,0 +1,35 @@
++from app.domain.models.plan import PlanSpec
++from app.domain.models.proxmox_host import ProxmoxHostConfig
++from app.infrastructure.repositories.plan_repository import PlanRepository
++from app.infrastructure.repositories.proxmox_host_repository import ProxmoxHostRepository
 +
 +
 +class ProvisioningPolicy:
 +    """Domain rules for validating whether a server can be provisioned."""
 +
-+    def __init__(self, allowed_locations: Iterable[str], allowed_plans: Iterable[str]):
-+        self.allowed_locations = set(allowed_locations)
-+        self.allowed_plans = set(allowed_plans)
++    def __init__(self, plans: PlanRepository, proxmox_hosts: ProxmoxHostRepository):
++        self.plans = plans
++        self.proxmox_hosts = proxmox_hosts
 +
-+    def validate(self, server: Server) -> None:
-+        if server.location not in self.allowed_locations:
-+            raise ValueError(f"Unsupported location: {server.location}")
-+        if server.plan not in self.allowed_plans:
-+            raise ValueError(f"Unsupported plan: {server.plan}")
++    def resolve_plan(self, plan_name: str) -> PlanSpec:
++        plan = self.plans.get(plan_name)
++        if not plan:
++            raise ValueError(f"Unsupported plan: {plan_name}")
++        return plan
++
++    def resolve_host(self, location: str, plan: PlanSpec) -> ProxmoxHostConfig:
++        if plan.location != location:
++            raise ValueError(
++                f"Plan '{plan.name}' is only available in {plan.location}, requested {location}"
++            )
++
++        if plan.proxmox_host_id:
++            host = self.proxmox_hosts.get(plan.proxmox_host_id)
++            if not host:
++                raise ValueError(f"No Proxmox host configured with id '{plan.proxmox_host_id}'")
++            return host
++
++        host = self.proxmox_hosts.first_for_location(location)
++        if not host:
++            raise ValueError(f"No Proxmox host available for location {location}")
++        return host
 diff --git a/app/infrastructure/__init__.py b/app/infrastructure/__init__.py
 new file mode 100644
 index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
@@ -834,36 +1157,83 @@ HcmV?d00001
 
 diff --git a/app/infrastructure/clients/proxmox.py b/app/infrastructure/clients/proxmox.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..9141f7261379297ba50c8a6855ddee92503ee8f2
+index 0000000000000000000000000000000000000000..ea15916d73bfd82f2547b5ef152179ebbd15d6ee
 --- /dev/null
 +++ b/app/infrastructure/clients/proxmox.py
-@@ -0,0 +1,26 @@
+@@ -0,0 +1,73 @@
++from typing import Tuple
++
++import httpx
++
++from app.domain.models.plan import PlanSpec
++from app.domain.models.proxmox_host import ProxmoxHostConfig
 +from app.domain.models.server import Server
-+from app.infrastructure.config.settings import settings
 +
 +
 +class ProxmoxClient:
-+    """Thin wrapper around Proxmox HTTP API (see https://pve.proxmox.com/pve-docs/api-viewer/)."""
++    """Thin wrapper around Proxmox HTTP API (https://pve.proxmox.com/pve-docs/api-viewer/)."""
 +
 +    def __init__(self):
-+        self.base_url = settings.proxmox_host
-+        self.token_id = settings.proxmox_token_id
-+        self.token_secret = settings.proxmox_token_secret
++        self.http = httpx.Client(timeout=10.0, verify=False)
 +
-+    def provision_server(self, server: Server) -> str:
-+        """Provision a server and return the external identifier.
++    def authenticate(self, host: ProxmoxHostConfig) -> Tuple[str, str | None]:
++        """Login with username/password and return (ticket, csrf)."""
 +
-+        In production this would call the Proxmox cluster API to create a VM or LXC.
-+        """
++        login_payload = {
++            "username": f"{host.username}@{host.realm}" if host.realm else host.username,
++            "password": host.password,
++        }
++        response = self.http.post(f"{host.api_url}/api2/json/access/ticket", data=login_payload)
++        response.raise_for_status()
++        data = response.json()["data"]
++        return data["ticket"], data.get("CSRFPreventionToken")
 +
-+        # Placeholder that simulates the call; integrate python-proxmoxer or requests here.
-+        return f"vm-{server.id}"
++    def _headers(self, ticket: str, csrf: str | None) -> dict[str, str]:
++        headers = {"Cookie": f"PVEAuthCookie={ticket}"}
++        if csrf:
++            headers["CSRFPreventionToken"] = csrf
++        return headers
 +
-+    def destroy_server(self, external_id: str) -> None:
++    def provision_server(self, server: Server, plan: PlanSpec, host: ProxmoxHostConfig) -> str:
++        """Provision a server and return the Proxmox-assigned identifier."""
++
++        ticket, csrf = self.authenticate(host)
++        node = plan.proxmox_node or host.node
++        if not node:
++            raise ValueError("Proxmox node must be configured on the plan or host")
++
++        payload = {
++            "name": f"vm-{server.id}",
++            "cores": plan.vcpu,
++            "memory": plan.memory_mb,
++            "sockets": 1,
++            "ostype": "l26",
++            "virtio0": f"local-lvm:{plan.disk_gb}G",
++        }
++
++        response = self.http.post(
++            f"{host.api_url}/api2/json/nodes/{node}/qemu",
++            data=payload,
++            headers=self._headers(ticket, csrf),
++        )
++        response.raise_for_status()
++        data = response.json().get("data") if response.headers.get("content-type", "").startswith("application/json") else None
++        vmid = data.get("vmid") if isinstance(data, dict) else None
++        return vmid or f"vm-{server.id}"
++
++    def destroy_server(self, external_id: str, host: ProxmoxHostConfig, node: str | None = None) -> None:
 +        """Rollback helper to clean up failed provisioning attempts."""
 +
-+        # Placeholder: perform DELETE on /nodes/<node>/qemu/<vmid>
-+        return None
++        ticket, csrf = self.authenticate(host)
++        target_node = node or host.node
++        if not target_node:
++            raise ValueError("Proxmox node required to delete VM")
++
++        response = self.http.delete(
++            f"{host.api_url}/api2/json/nodes/{target_node}/qemu/{external_id}",
++            headers=self._headers(ticket, csrf),
++        )
++        response.raise_for_status()
 diff --git a/app/infrastructure/clients/solapi.py b/app/infrastructure/clients/solapi.py
 new file mode 100644
 index 0000000000000000000000000000000000000000..0558e27259511cc568021c7d90c2949d31fed2d5
@@ -921,10 +1291,10 @@ HcmV?d00001
 
 diff --git a/app/infrastructure/config/settings.py b/app/infrastructure/config/settings.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..d88b516a4181586263a27c434cdcbae86e262f8e
+index 0000000000000000000000000000000000000000..d10e390e6a7f25db2ef3f09d3f78cd5dccff05bf
 --- /dev/null
 +++ b/app/infrastructure/config/settings.py
-@@ -0,0 +1,25 @@
+@@ -0,0 +1,26 @@
 +from pydantic import BaseSettings, Field
 +
 +
@@ -936,8 +1306,9 @@ index 0000000000000000000000000000000000000000..d88b516a4181586263a27c434cdcbae8
 +
 +    # Proxmox settings
 +    proxmox_host: str = Field("https://proxmox.local", env="PROXMOX_HOST")
-+    proxmox_token_id: str = Field("", env="PROXMOX_TOKEN_ID")
-+    proxmox_token_secret: str = Field("", env="PROXMOX_TOKEN_SECRET")
++    proxmox_username: str = Field("root", env="PROXMOX_USERNAME")
++    proxmox_password: str = Field("", env="PROXMOX_PASSWORD")
++    proxmox_realm: str = Field("pam", env="PROXMOX_REALM")
 +
 +    # SOLAPI settings
 +    solapi_api_key: str = Field("", env="SOLAPI_KEY")
@@ -1008,6 +1379,62 @@ Jo?$RF{{!l6a?=0+
 literal 0
 HcmV?d00001
 
+diff --git a/app/infrastructure/repositories/plan_repository.py b/app/infrastructure/repositories/plan_repository.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..e951e7c7027f819ba42f3482ab404d03b2d286f5
+--- /dev/null
++++ b/app/infrastructure/repositories/plan_repository.py
+@@ -0,0 +1,19 @@
++from typing import Dict, Iterable, Optional
++
++from app.domain.models.plan import PlanSpec
++
++
++class PlanRepository:
++    """In-memory store for admin-defined hosting plans."""
++
++    def __init__(self):
++        self._plans: Dict[str, PlanSpec] = {}
++
++    def add(self, plan: PlanSpec) -> None:
++        self._plans[plan.name] = plan
++
++    def get(self, name: str) -> Optional[PlanSpec]:
++        return self._plans.get(name)
++
++    def list(self) -> Iterable[PlanSpec]:
++        return self._plans.values()
+diff --git a/app/infrastructure/repositories/proxmox_host_repository.py b/app/infrastructure/repositories/proxmox_host_repository.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..19556d0fb17c275991040934052a497ce9cb759d
+--- /dev/null
++++ b/app/infrastructure/repositories/proxmox_host_repository.py
+@@ -0,0 +1,25 @@
++from typing import Dict, Iterable, Optional
++
++from app.domain.models.proxmox_host import ProxmoxHostConfig
++
++
++class ProxmoxHostRepository:
++    """In-memory metadata store for Proxmox hosts and nodes."""
++
++    def __init__(self):
++        self._hosts: Dict[str, ProxmoxHostConfig] = {}
++
++    def add(self, host: ProxmoxHostConfig) -> None:
++        self._hosts[host.id] = host
++
++    def get(self, host_id: str) -> Optional[ProxmoxHostConfig]:
++        return self._hosts.get(host_id)
++
++    def list(self) -> Iterable[ProxmoxHostConfig]:
++        return self._hosts.values()
++
++    def first_for_location(self, location: str) -> Optional[ProxmoxHostConfig]:
++        for host in self._hosts.values():
++            if host.location == location:
++                return host
++        return None
 diff --git a/app/infrastructure/repositories/server_repository.py b/app/infrastructure/repositories/server_repository.py
 new file mode 100644
 index 0000000000000000000000000000000000000000..b09cf867057ccbe72c46e2d69c23485192225562
@@ -1117,31 +1544,42 @@ HcmV?d00001
 
 diff --git a/app/interfaces/schemas.py b/app/interfaces/schemas.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..537dd30b5d2431940af9189e100fdeb758acfaf4
+index 0000000000000000000000000000000000000000..b3d1a57039ee1430bdf6906adb890fe23a70f400
 --- /dev/null
 +++ b/app/interfaces/schemas.py
-@@ -0,0 +1,47 @@
+@@ -0,0 +1,124 @@
 +from uuid import UUID
 +
 +from pydantic import BaseModel, EmailStr, Field
 +
++from app.domain.models.plan import PlanSpec
 +from app.domain.models.server import Server, ServerStatus
++from app.domain.models.proxmox_host import ProxmoxHostConfig
 +from app.domain.models.user import User
 +
 +
 +class UserCreate(BaseModel):
 +    email: EmailStr
 +    phone_number: str = Field(..., min_length=8)
++    external_auth_id: str | None = Field(
++        default=None, description="External auth provider user id to link with"
++    )
 +
 +
 +class UserRead(BaseModel):
 +    id: UUID
 +    email: EmailStr
 +    phone_number: str
++    external_auth_id: str | None
 +
 +    @classmethod
 +    def from_entity(cls, user: User) -> "UserRead":
-+        return cls(id=user.id, email=user.email, phone_number=user.phone_number)
++        return cls(
++            id=user.id,
++            email=user.email,
++            phone_number=user.phone_number,
++            external_auth_id=user.external_auth_id,
++        )
 +
 +
 +class ServerCreate(BaseModel):
@@ -1155,6 +1593,11 @@ index 0000000000000000000000000000000000000000..537dd30b5d2431940af9189e100fdeb7
 +    owner_id: UUID
 +    plan: str
 +    location: str
++    proxmox_host_id: str | None
++    proxmox_node: str | None
++    vcpu: int | None
++    memory_mb: int | None
++    disk_gb: int | None
 +    status: ServerStatus
 +    external_id: str | None
 +
@@ -1165,23 +1608,85 @@ index 0000000000000000000000000000000000000000..537dd30b5d2431940af9189e100fdeb7
 +            owner_id=server.owner_id,
 +            plan=server.plan,
 +            location=server.location,
++            proxmox_host_id=server.proxmox_host_id,
++            proxmox_node=server.proxmox_node,
++            vcpu=server.vcpu,
++            memory_mb=server.memory_mb,
++            disk_gb=server.disk_gb,
 +            status=server.status,
 +            external_id=server.external_id,
 +        )
++
++
++class PlanCreate(BaseModel):
++    name: str
++    vcpu: int = Field(..., gt=0)
++    memory_mb: int = Field(..., gt=256)
++    disk_gb: int = Field(..., gt=5)
++    location: str
++    proxmox_host_id: str | None = None
++    proxmox_node: str | None = None
++    description: str | None = None
++
++
++class PlanRead(BaseModel):
++    name: str
++    vcpu: int
++    memory_mb: int
++    disk_gb: int
++    location: str
++    proxmox_host_id: str | None
++    proxmox_node: str | None
++    description: str | None
++
++    @classmethod
++    def from_entity(cls, plan: PlanSpec) -> "PlanRead":
++        return cls(**plan.__dict__)
++
++
++class ProxmoxHostCreate(BaseModel):
++    id: str = Field(..., description="Internal identifier for referencing the host")
++    api_url: str = Field(..., example="https://pve1.local")
++    username: str
++    password: str
++    realm: str = Field("pam", description="Authentication realm, e.g. pam or pve")
++    node: str | None = Field(None, description="Default node name to schedule on")
++    location: str = Field("kr-central", description="Geographic/location tag")
++
++
++class ProxmoxHostRead(BaseModel):
++    id: str
++    api_url: str
++    username: str
++    realm: str
++    node: str | None
++    location: str
++
++    @classmethod
++    def from_entity(cls, host: ProxmoxHostConfig) -> "ProxmoxHostRead":
++        return cls(
++            id=host.id,
++            api_url=host.api_url,
++            username=host.username,
++            realm=host.realm,
++            node=host.node,
++            location=host.location,
++        )
 diff --git a/app/main.py b/app/main.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..0a11b92c535df2cfe2084d76273fc70f603e8ee9
+index 0000000000000000000000000000000000000000..8e960558429eb95b8d5ca5e88142a34e14d661f6
 --- /dev/null
 +++ b/app/main.py
-@@ -0,0 +1,14 @@
+@@ -0,0 +1,15 @@
 +from fastapi import FastAPI
 +
-+from app.api.routes import servers, users
++from app.api.routes import admin, servers, users
 +from app.infrastructure.config.settings import settings
 +
 +app = FastAPI(title=settings.app_name, version="0.1.0")
 +
 +app.include_router(users.router)
++app.include_router(admin.router)
 +app.include_router(servers.router)
 +
 +
@@ -1200,13 +1705,14 @@ index 3c85ea1a84d7c4859853f69e70848fb798a7f314..4535d673290820143e6c4e1305d642f8
 +__all__ = ["app"]
 diff --git a/requirements.txt b/requirements.txt
 new file mode 100644
-index 0000000000000000000000000000000000000000..b0ab436b5c5e1c06790ae89a95a4d4b526483fdc
+index 0000000000000000000000000000000000000000..2332943d71bc713e778c45f6ed3c74b197a237db
 --- /dev/null
 +++ b/requirements.txt
-@@ -0,0 +1,3 @@
+@@ -0,0 +1,4 @@
 +fastapi>=0.104.0
 +uvicorn>=0.23.0
 +pydantic>=1.10.0
++httpx>=0.27.0
 
 EOF
 )

@@ -2,25 +2,25 @@ from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, Field
 
+from app.domain.models.plan import PlanSpec
 from app.domain.models.server import Server, ServerStatus
+from app.domain.models.proxmox_host import ProxmoxHostConfig
 from app.domain.models.user import User
 
 
 class UserCreate(BaseModel):
     email: EmailStr
     phone_number: str = Field(..., min_length=8)
-    external_provider: str = Field(..., min_length=1)
-    external_id: str = Field(..., min_length=1)
-    external_claims: dict[str, str] = Field(default_factory=dict)
+    external_auth_id: str | None = Field(
+        default=None, description="External auth provider user id to link with"
+    )
 
 
 class UserRead(BaseModel):
     id: UUID
     email: EmailStr
     phone_number: str
-    external_provider: str
-    external_id: str
-    external_claims: dict[str, str]
+    external_auth_id: str | None
 
     @classmethod
     def from_entity(cls, user: User) -> "UserRead":
@@ -28,9 +28,7 @@ class UserRead(BaseModel):
             id=user.id,
             email=user.email,
             phone_number=user.phone_number,
-            external_provider=user.external_provider,
-            external_id=user.external_id,
-            external_claims=user.external_claims,
+            external_auth_id=user.external_auth_id,
         )
 
 
@@ -45,6 +43,11 @@ class ServerRead(BaseModel):
     owner_id: UUID
     plan: str
     location: str
+    proxmox_host_id: str | None
+    proxmox_node: str | None
+    vcpu: int | None
+    memory_mb: int | None
+    disk_gb: int | None
     status: ServerStatus
     external_id: str | None
 
@@ -55,6 +58,67 @@ class ServerRead(BaseModel):
             owner_id=server.owner_id,
             plan=server.plan,
             location=server.location,
+            proxmox_host_id=server.proxmox_host_id,
+            proxmox_node=server.proxmox_node,
+            vcpu=server.vcpu,
+            memory_mb=server.memory_mb,
+            disk_gb=server.disk_gb,
             status=server.status,
             external_id=server.external_id,
+        )
+
+
+class PlanCreate(BaseModel):
+    name: str
+    vcpu: int = Field(..., gt=0)
+    memory_mb: int = Field(..., gt=256)
+    disk_gb: int = Field(..., gt=5)
+    location: str
+    proxmox_host_id: str | None = None
+    proxmox_node: str | None = None
+    description: str | None = None
+
+
+class PlanRead(BaseModel):
+    name: str
+    vcpu: int
+    memory_mb: int
+    disk_gb: int
+    location: str
+    proxmox_host_id: str | None
+    proxmox_node: str | None
+    description: str | None
+
+    @classmethod
+    def from_entity(cls, plan: PlanSpec) -> "PlanRead":
+        return cls(**plan.__dict__)
+
+
+class ProxmoxHostCreate(BaseModel):
+    id: str = Field(..., description="Internal identifier for referencing the host")
+    api_url: str = Field(..., example="https://pve1.local")
+    username: str
+    password: str
+    realm: str = Field("pam", description="Authentication realm, e.g. pam or pve")
+    node: str | None = Field(None, description="Default node name to schedule on")
+    location: str = Field("kr-central", description="Geographic/location tag")
+
+
+class ProxmoxHostRead(BaseModel):
+    id: str
+    api_url: str
+    username: str
+    realm: str
+    node: str | None
+    location: str
+
+    @classmethod
+    def from_entity(cls, host: ProxmoxHostConfig) -> "ProxmoxHostRead":
+        return cls(
+            id=host.id,
+            api_url=host.api_url,
+            username=host.username,
+            realm=host.realm,
+            node=host.node,
+            location=host.location,
         )

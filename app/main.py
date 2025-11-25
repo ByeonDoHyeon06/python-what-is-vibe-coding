@@ -5,8 +5,8 @@ from app.infrastructure.config.settings import settings
 
 app = FastAPI(title=settings.app_name, version="0.1.0")
 
-app.include_router(admin.router)
 app.include_router(users.router)
+app.include_router(admin.router)
 app.include_router(servers.router)
 
 

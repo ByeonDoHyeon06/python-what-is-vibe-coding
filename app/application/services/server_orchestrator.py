@@ -1,7 +1,10 @@
+from app.domain.models.plan import PlanSpec
+from app.domain.models.proxmox_host import ProxmoxHostConfig
 from app.domain.models.server import Server, ServerStatus
 from app.domain.models.user import User
 from app.infrastructure.clients.proxmox import ProxmoxClient
 from app.infrastructure.clients.solapi import SolapiClient
+from app.infrastructure.repositories.proxmox_host_repository import ProxmoxHostRepository
 from app.infrastructure.repositories.server_repository import ServerRepository
 
 
@@ -17,23 +20,21 @@ class ServerProvisionOrchestrator:
     def __init__(
         self,
         server_repo: ServerRepository,
+        proxmox_hosts: ProxmoxHostRepository,
         proxmox_client: ProxmoxClient,
         solapi_client: SolapiClient,
     ):
         self.server_repo = server_repo
+        self.proxmox_hosts = proxmox_hosts
         self.proxmox_client = proxmox_client
         self.solapi_client = solapi_client
 
-    def provision(self, server: Server, user: User) -> None:
+    def provision(self, server: Server, user: User, plan: PlanSpec, host: ProxmoxHostConfig) -> None:
         try:
             server.status = ServerStatus.PROVISIONING
             self.server_repo.update(server)
 
-            node = self.proxmox_client.resolve_node(server.location)
-            plan_template = self.proxmox_client.resolve_plan_template(server.plan)
-            external_id = self.proxmox_client.provision_server(
-                server, node=node, plan_template=plan_template
-            )
+            external_id = self.proxmox_client.provision_server(server, plan=plan, host=host)
             server.external_id = external_id
 
             server.status = ServerStatus.ACTIVE
@@ -51,7 +52,10 @@ class ServerProvisionOrchestrator:
             raise exc
 
     def _rollback(self, server: Server) -> None:
-        if server.external_id:
-            self.proxmox_client.destroy_server(server.external_id)
+        if server.external_id and server.proxmox_host_id:
+            host = self.proxmox_hosts.get(server.proxmox_host_id)
+            if host:
+                node = server.proxmox_node or host.node
+                self.proxmox_client.destroy_server(server.external_id, host=host, node=node)
         server.status = ServerStatus.ROLLED_BACK
         self.server_repo.update(server)

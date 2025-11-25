@@ -2,7 +2,14 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.api.dependencies import get_server_provisioning, get_server_repository
+from app.api.dependencies import (
+    get_plan_repository,
+    get_proxmox_host_repository,
+    get_server_provisioning,
+    get_server_repository,
+)
+from app.infrastructure.repositories.plan_repository import PlanRepository
+from app.infrastructure.repositories.proxmox_host_repository import ProxmoxHostRepository
 from app.infrastructure.repositories.server_repository import ServerRepository
 from app.interfaces.schemas import ServerCreate, ServerRead
 
@@ -25,6 +32,31 @@ def provision_server(
 def list_user_servers(user_id: UUID, repo: ServerRepository = Depends(get_server_repository)):
     servers = repo.list_for_user(user_id=user_id)
     return [ServerRead.from_entity(server) for server in servers]
+
+
+@router.get("/metadata/allowed", tags=["metadata"])
+def get_allowed_plans_and_locations(
+    plans: PlanRepository = Depends(get_plan_repository),
+    hosts: ProxmoxHostRepository = Depends(get_proxmox_host_repository),
+):
+    """Expose discoverable provisioning metadata (plans + Proxmox locations)."""
+
+    return {
+        "plans": [
+            {
+                "name": plan.name,
+                "location": plan.location,
+                "vcpu": plan.vcpu,
+                "memory_mb": plan.memory_mb,
+                "disk_gb": plan.disk_gb,
+                "proxmox_host_id": plan.proxmox_host_id,
+                "proxmox_node": plan.proxmox_node,
+                "description": plan.description,
+            }
+            for plan in plans.list()
+        ],
+        "locations": sorted({host.location for host in hosts.list()}),
+    }
 
 
 @router.get("/{server_id}", response_model=ServerRead)
