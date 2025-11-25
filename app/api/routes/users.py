@@ -15,9 +15,7 @@ def register_user(
     user = register.execute(
         email=payload.email,
         phone_number=payload.phone_number,
-        external_provider=payload.external_provider,
-        external_id=payload.external_id,
-        external_claims=payload.external_claims,
+        external_auth_id=payload.external_auth_id,
     )
     return UserRead.from_entity(user)
 

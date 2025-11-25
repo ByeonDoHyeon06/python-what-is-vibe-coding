@@ -3,9 +3,14 @@ from functools import lru_cache
 from app.application.services.server_orchestrator import ServerProvisionOrchestrator
 from app.application.use_cases.provision_server import ProvisionServer
 from app.application.use_cases.register_user import RegisterUser
+from app.domain.models.plan import PlanSpec
+from app.domain.models.proxmox_host import ProxmoxHostConfig
 from app.domain.services.provisioning_policy import ProvisioningPolicy
 from app.infrastructure.clients.proxmox import ProxmoxClient
 from app.infrastructure.clients.solapi import SolapiClient
+from app.infrastructure.config.settings import settings
+from app.infrastructure.repositories.plan_repository import PlanRepository
+from app.infrastructure.repositories.proxmox_host_repository import ProxmoxHostRepository
 from app.infrastructure.repositories.server_repository import ServerRepository
 from app.infrastructure.repositories.user_repository import UserRepository
 
@@ -21,8 +26,54 @@ def get_server_repository() -> ServerRepository:
 
 
 @lru_cache()
+def get_plan_repository() -> PlanRepository:
+    repo = PlanRepository()
+    if not repo.get("basic"):
+        repo.add(
+            PlanSpec(
+                name="basic",
+                vcpu=1,
+                memory_mb=1024,
+                disk_gb=20,
+                location="kr-central",
+                description="Default starter plan",
+            )
+        )
+    if not repo.get("pro"):
+        repo.add(
+            PlanSpec(
+                name="pro",
+                vcpu=2,
+                memory_mb=4096,
+                disk_gb=80,
+                location="kr-central",
+                description="Larger VM for heavier workloads",
+            )
+        )
+    return repo
+
+
+@lru_cache()
+def get_proxmox_host_repository() -> ProxmoxHostRepository:
+    repo = ProxmoxHostRepository()
+    if settings.proxmox_password:
+        repo.add(
+            ProxmoxHostConfig(
+                id="default",
+                api_url=settings.proxmox_host,
+                username=settings.proxmox_username,
+                password=settings.proxmox_password,
+                realm=settings.proxmox_realm,
+                node=None,
+                location="kr-central",
+            )
+        )
+    return repo
+
+
+@lru_cache()
 def get_provisioning_policy() -> ProvisioningPolicy:
-    return ProvisioningPolicy(allowed_locations={"kr-central", "jp-east"}, allowed_plans={"basic", "pro"})
+    return ProvisioningPolicy(plans=get_plan_repository(), proxmox_hosts=get_proxmox_host_repository())
 
 
 @lru_cache()
@@ -39,6 +90,7 @@ def get_solapi_client() -> SolapiClient:
 def get_server_orchestrator() -> ServerProvisionOrchestrator:
     return ServerProvisionOrchestrator(
         server_repo=get_server_repository(),
+        proxmox_hosts=get_proxmox_host_repository(),
         proxmox_client=get_proxmox_client(),
         solapi_client=get_solapi_client(),
     )
@@ -54,6 +106,7 @@ def get_server_provisioning() -> ProvisionServer:
     return ProvisionServer(
         server_repo=get_server_repository(),
         user_repo=get_user_repository(),
+        proxmox_hosts=get_proxmox_host_repository(),
         policy=get_provisioning_policy(),
         orchestrator=get_server_orchestrator(),
     )
