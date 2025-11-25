@@ -16,8 +16,11 @@ class ProxmoxClient:
         In production this would call the Proxmox cluster API to create a VM or LXC.
         """
 
+        payload = server.proxmox_params()
+        payload.update({"plan": server.plan})
+
         # Placeholder that simulates the call; integrate python-proxmoxer or requests here.
-        return f"vm-{server.id}"
+        return f"vm-{server.id}"  # would use payload in a real call
 
     def destroy_server(self, external_id: str) -> None:
         """Rollback helper to clean up failed provisioning attempts."""
