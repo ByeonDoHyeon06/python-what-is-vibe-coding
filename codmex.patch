@@ -1,0 +1,1130 @@
+ (cd "$(git rev-parse --show-toplevel)" && git apply --3way <<'EOF' 
+diff --git a/app/__init__.py b/app/__init__.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/app/__pycache__/__init__.cpython-311.pyc b/app/__pycache__/__init__.cpython-311.pyc
+new file mode 100644
+index 0000000000000000000000000000000000000000..552dc09e8d87a1ff1156a5fc665bf181946f5ea0
+GIT binary patch
+literal 124
+zcmZ3^%ge<81V=<wGePuY5CH>>P{wCAAY(d13PUi1CZpd<h9V{)|1(JP7k^?wfqr~^
+uW?p7Ve7s&k<u4AK-29Z%oK(9aR-in{gkpXm@qw9<k?{iqj3{CTiU9y62Nv@H
+
+literal 0
+HcmV?d00001
+
+diff --git a/app/__pycache__/main.cpython-311.pyc b/app/__pycache__/main.cpython-311.pyc
+new file mode 100644
+index 0000000000000000000000000000000000000000..be40c1cd3ceaa7153463eebdede24b632b6e0405
+GIT binary patch
+literal 906
+zcmaJ<&1(}u6o0c{*_x(GO)b_-2=owyZ9Pall-gcIFGcW{OIfm$WYhf!v$GX*3L@yS
+zhk_Rmo}v={3;YK>Ze+nQr+_DKk${Jue3LI4Q6F#K_x$EJ!@SGot^mrHjcvC<0KUs)
+zF4`;@|H9xkIN%Tud{QAq#)_x-YDM+6iZ;nrPxp<AK|ldYsL{;KVI1wF-c<m4xTaDu
+zsrhzgo?Z4-YfkvcS{M2Ba7~54KliBr-IJXoT=tH!jP7J!Ko<vki=oP@V?Ke>$`4s7
+z5s`UdNBr>dqmm*r5oM>8MM94;im+)$lyf(zM{RxAx?}C)kj`E1QIU~@ZWy%9od&f%
+z-e^}BM_{1N*0_KHJ~83w=h9qU-cjBtNJc#pN_c|cM#OC%M<PpuQ<sH-PXk_3n1MUl
+zDw+>4mLL~dyVct9Z8xx5&qQ`gpxU6-6Lt;Tax%J(rUSzpTc7Twx9=y}1F6~pTf_QM
+zDJL>DytmzQnWQS#5YWQRVqwf_#N-!Yy6hBX#|>%>$5~wEF{4&B3~FxOnm^8jpD=Oo
+zIIw*xRE)%$8&tj6p~n+MCXAU^>y%GevYb3a(qUK8T$p=)=)@k~XE!mGPZWJdGg1j5
+z1Gtqe>kvxG-*f=wWLbwsu2VmInC7?NKTV8s-zcX>xuXt2{RZn_Vg2mx`CcCiDHIYY
+x3>MY$`F<aYDHIbZjto%rmz&QwUv2eCJ|+2)LdYQ*fwVtWP&WRkO*@mz{RWU>&Lsc<
+
+literal 0
+HcmV?d00001
+
+diff --git a/app/api/__init__.py b/app/api/__init__.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/app/api/__pycache__/__init__.cpython-311.pyc b/app/api/__pycache__/__init__.cpython-311.pyc
+new file mode 100644
+index 0000000000000000000000000000000000000000..40161e3bb2783313a086748deb63e40023501015
+GIT binary patch
+literal 128
+zcmZ3^%ge<81V=<wGePuY5CH>>P{wCAAY(d13PUi1CZpd<h9V{)|1(JPmvCZ1fqr5^
+yrha^UW?p7Ve7s&k<u4AK-29Z%oK(9aR-hV?DaHIi;sY}yBjX1K7*WIw6axUD=NMoB
+
+literal 0
+HcmV?d00001
+
+diff --git a/app/api/dependencies/__init__.py b/app/api/dependencies/__init__.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..3f41a577d29b583f03abe7af21da6656348637f2
+--- /dev/null
++++ b/app/api/dependencies/__init__.py
+@@ -0,0 +1,59 @@
++from functools import lru_cache
++
++from app.application.services.server_orchestrator import ServerProvisionOrchestrator
++from app.application.use_cases.provision_server import ProvisionServer
++from app.application.use_cases.register_user import RegisterUser
++from app.domain.services.provisioning_policy import ProvisioningPolicy
++from app.infrastructure.clients.proxmox import ProxmoxClient
++from app.infrastructure.clients.solapi import SolapiClient
++from app.infrastructure.repositories.server_repository import ServerRepository
++from app.infrastructure.repositories.user_repository import UserRepository
++
++
++@lru_cache()
++def get_user_repository() -> UserRepository:
++    return UserRepository()
++
++
++@lru_cache()
++def get_server_repository() -> ServerRepository:
++    return ServerRepository()
++
++
++@lru_cache()
++def get_provisioning_policy() -> ProvisioningPolicy:
++    return ProvisioningPolicy(allowed_locations={"kr-central", "jp-east"}, allowed_plans={"basic", "pro"})
++
++
++@lru_cache()
++def get_proxmox_client() -> ProxmoxClient:
++    return ProxmoxClient()
++
++
++@lru_cache()
++def get_solapi_client() -> SolapiClient:
++    return SolapiClient()
++
++
++@lru_cache()
++def get_server_orchestrator() -> ServerProvisionOrchestrator:
++    return ServerProvisionOrchestrator(
++        server_repo=get_server_repository(),
++        proxmox_client=get_proxmox_client(),
++        solapi_client=get_solapi_client(),
++    )
++
++
++@lru_cache()
++def get_user_registration() -> RegisterUser:
++    return RegisterUser(repository=get_user_repository())
++
++
++@lru_cache()
++def get_server_provisioning() -> ProvisionServer:
++    return ProvisionServer(
++        server_repo=get_server_repository(),
++        user_repo=get_user_repository(),
++        policy=get_provisioning_policy(),
++        orchestrator=get_server_orchestrator(),
++    )
+diff --git a/app/api/dependencies/__pycache__/__init__.cpython-311.pyc b/app/api/dependencies/__pycache__/__init__.cpython-311.pyc
+new file mode 100644
+index 0000000000000000000000000000000000000000..76727765002906955a05ac29fb15f375de597121
+GIT binary patch
+literal 3390
+zcmb_e&uimG6duX49Y=PYIB~qO^P_3V4>wt7OH0{=G+QVXT4=g#+CzP)aU~^DB3ou8
+zZ#PR1Ti8Pv_P#mxloGOsLNEO@<l;gQ1QtpUg&w?QPkZWnBU_d%wQQFTqo=2tZ^qxe
+z`R0v(Or?eil%KPU>R&NJe#ehqiFBQ-UpYda5ShrFMrvG{<Iv|dz7{D*m><!ETC^Nx
+zzM#cw@p7E`QEjM}C?}X7(}rteS!8}(OV(256!V9)ky^T(W`05&t&Nq(IKmT!JB6P=
+z?{OjWurjvC%i=@9-(JpyV$*<42C(Cy*aTox0qjI5Rs`%w0GkcPrU07`U?)Sd5x|ZH
+zu(?od9I#^n?6pvA6tI~9c1j-KCB=z9F}g+0PH41Qk*d;x0w0B4h2B-@ZK~f@4OOpy
+zMxos>Y1Pyzbf?`82M0~bJIcOlm<s*EQ0N(FXIzL{-@mPEs&ovkDQLY{)9-z#sY>01
+zhUBiURU4}NJ?cz&M``GW3O|N}MsUi0iyfni*`#&Jl?6CFJSf$xSujtC31aOPzf^X~
+z8Mi~z(0N9#5c2YkYNN3Z9M)x}q10uiE~$#KUa6>c)vQ!XjbnR!Uok69AW@+%FPej~
+zDR_(#Fb~Kd;#5m4w8erY6lfNjUY8ynhrtwQrW0szE;<Ru&LRz90UP5bG6j7Zcw8cd
+zmN?TEXDneRNF)kC7N<3E{Be>wnLps=h%6lNPot+0(Q}L{D<G8E&i&yddR>BjqgCyG
+z{IGFdsT!so{km$Xk{xMKy~x{RRZY{sQRIrIOH~t;W7w%)Q$wrP4H}0D2UnKEmB9p#
+z*g!Cq22%{3126{Km<NMFp809|mt*V3$5y#&Ne9-KswEz_#KX3DXbFeG<^Bg*IB`#e
+zu*-DWp>Qh_Q!Yh5(?~4YC3fx6t;e@4A^$&c5JNbOvAt(!rAJ`_U`WHIkbAWKc-s=D
+zf)pUBJG)*7$G__)s-au_C&fgqg!kYchW0$=PGP=tcTUg^zf+9ZqDQv&2<)^cmUhbU
+zuB#|e0p_MCYZhjT3k_9FcT(MxoahRGm*6qp1%rxNx|}GsCRW=MtCzWAE4SLttzJ$p
+zw<e42$zmriBxBDBm=|a|M2N<M(L*}8qN`0XuNpmw1mvJ|c%0%yg0qMFDWu3#+!&Tg
+z2G_^VdN<`@UWLpHhl#ENejOeo4+dA4`)%R9*22y9!c9xuXo(wbal;Zef@{DXV{7;x
+zoL61L>nOm)6Vxq!JwZeulIIvrR-A|kbP>MngqvRNm~-~+q<3G7QHpYORDl_Rr3SX!
+zgP~)|q$>??PN6qo7^=c}9}EUB-<L*av6WeFXO=J1ORe-uJH2w5U2A1a?QE%&h@wWo
+zyg<_-(XK{zig`P+*Q`sXu4@Lx=-O*=mz3av>yB+$33;fJVlW5tws%cT=k{BJLm(1x
+z4;wJXW#7&EEClxQKM$bYJD6QoOk56H)@xO@-Y4Tu>`Apl$p1~8TdnU=$n3N!!8NOt
+zoQ%iV;HjnfU(ufb7oc;TDP~6d?GT)M0^pwQ#l>wqrg)#)a3KeXxELJg>c#n+Ku2Me
+zbCOu%z>C9^JuoY<!^1={pqQ6KTQyy7YRWdn6OKpLn1`FA6X7`Sg3MX|`iy*T`RfJw
+z$nw_<@`2^AVVEt8`054OwEXpg>{$MKK|ZnkwG$(}_+aY0!oxy`=eX&UuQ~)?ee*m*
+z_*A#EGvou$T660Nob4MAdUgPP#98z2Ao7UwTF(gR@c%&J<Wqze`o@DU41n_|TZqf|
+zjR&0ffumf^ng=wz`^H6M>!@#`n<wAmtebt~g0a<0I>yC*nClRD^^FVmwX!t(H$KY_
+AG5`Po
+
+literal 0
+HcmV?d00001
+
+diff --git a/app/api/routes/__pycache__/servers.cpython-311.pyc b/app/api/routes/__pycache__/servers.cpython-311.pyc
+new file mode 100644
+index 0000000000000000000000000000000000000000..0f6c625c03ac6e0291bbe10994d21cbf9e643afd
+GIT binary patch
+literal 2769
+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
+G0{;hFx08DS
+
+literal 0
+HcmV?d00001
+
+diff --git a/app/api/routes/__pycache__/users.cpython-311.pyc b/app/api/routes/__pycache__/users.cpython-311.pyc
+new file mode 100644
+index 0000000000000000000000000000000000000000..8b6cfb5893509c43d5a7520685ae1b953ce4b384
+GIT binary patch
+literal 1761
+zcmZuw&1>UE6rYhL+mh@!yZLYv)7Je+wrU!stV@?dFtl;I+b%36p%+6jsx|g%kt{Ki
+z>1N3mvn(`+_Rv#u=)s4QrX+{b%l6NZieQbP5a?-dF1hWgZ=~9>NrsuHH*e<s-stz<
+z`!%1J5R7LFE5?vR=pVKj4dH*~{7sC|0n(9<O=RIZwzxWn*`6~~7GLKrp)SPxl$o|N
+z^-QeuX4Vqxq9xTOj5tKFF6iktKFu6KoD*2dsLMp|=SI89ubw5+sW^Qba5%yr!Fx_%
+zC8LFPiHI#um!AqpU^*Ecpn4v#XU5wJ1+WW5S{hrfj3Zo%lOq|3lfM*aR-f5HO5p{=
+zQ@BX{_{-0??XE{?l&KMibaWT23vJ>xx-Ov&O4^3&QOz^#PBb@Rc5K)1Y`Ux9Xyz-p
+zxlP6vE|QpKixSNvQ8qc%^hfCp2I)pZ{DClOhmw}@FycL}?M8?}QQ|sw$0ZHR)`=Nq
+z9BtRMHN81b0z8|Cm4bC{f;d2XxDVgUV-GzT6A$_r;S^6N>M`eKF1#Nw^my!X)1(4z
+z+&y@;KrGELqnvZ!?vO^OYkfngB19STkTe;Q*T9=zXF>!K$t`MI4bt%pZ&yjt0<&ck
+zT7h&v=7RlAxm<o()Es9+bBqnjQsO3jsm^YcA34NXp|8Mw)(q}V5Ir=MP;UOYT>48c
+z^>6&L{%1R^Zu@d6kat3Pr&s%1o(tvI`+Oj;gz}2dubhJyibNI~671N`F;8G;Z;9Eh
+zf&#6CpQ1g~2mSJxF5w!Q-p71RL9;HMgLVEPhy&CH;I9`SV{an-M9T0q{XcO(6nD^X
+zkc605Iu96-4NiTZE`sW^{FckK2%neIrU_Nsv@NIl=ryLsw7Kf0X*V^~t%5Q-Utqp(
+zf#@M$t|jyMgCFmNxpIF#$gPIC)v=wjE`%!OnYV)JGV^7RPr^phMJW0PnAyL&We`1d
+z7GwYZ(X;9w)u6H!R<-~&kZU2>`C1HoPq`LlTAJ%Y0Z^6!%1SYshni5qr0Q{dl1|eg
+zE@f2GG&_fSaa5zzqTorpO|MId%90wlCtOv>X-*oJvSN=G6E7&&mezzzZu35rwM(-M
+zH?G@sT!T=d0OiFM7p0*8X_?(%e@9<sf>Dx?p526=?V6-Y6|gZ{+_ymvQyAj`TJ^7*
+zXXvhf)f}KN{OLJBxBRQ-nRtDF>F}N78^=q&SP8^RC{}vuVH$DS?@Lcg``i6&uM}V<
+z#0nT^i~HaD#rJ~3dRSN=3IbjoA`pXoahMuyV#~iN#J$UWIA)$@Xv<HQ_dhxG`geZ*
+wuD2XuHN@&*?dI_<zw%kIb~{|VJwzCPiW7OLPVN$&VQzrekh{2-oWv~t2l1Ap<NyEw
+
+literal 0
+HcmV?d00001
+
+diff --git a/app/api/routes/servers.py b/app/api/routes/servers.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..2bee181fcdd09b85fed48de3a3a6db4bc3fefa7e
+--- /dev/null
++++ b/app/api/routes/servers.py
+@@ -0,0 +1,35 @@
++from uuid import UUID
++
++from fastapi import APIRouter, Depends, HTTPException
++
++from app.api.dependencies import get_server_provisioning, get_server_repository
++from app.infrastructure.repositories.server_repository import ServerRepository
++from app.interfaces.schemas import ServerCreate, ServerRead
++
++router = APIRouter(prefix="/servers", tags=["servers"])
++
++
++@router.post("", response_model=ServerRead)
++def provision_server(
++    payload: ServerCreate,
++    provision = Depends(get_server_provisioning),
++):
++    try:
++        server = provision.execute(user_id=payload.user_id, plan=payload.plan, location=payload.location)
++        return ServerRead.from_entity(server)
++    except ValueError as exc:
++        raise HTTPException(status_code=400, detail=str(exc)) from exc
++
++
++@router.get("/user/{user_id}", response_model=list[ServerRead])
++def list_user_servers(user_id: UUID, repo: ServerRepository = Depends(get_server_repository)):
++    servers = repo.list_for_user(user_id=user_id)
++    return [ServerRead.from_entity(server) for server in servers]
++
++
++@router.get("/{server_id}", response_model=ServerRead)
++def get_server(server_id: UUID, repo: ServerRepository = Depends(get_server_repository)):
++    server = repo.get(server_id)
++    if not server:
++        raise HTTPException(status_code=404, detail="Server not found")
++    return ServerRead.from_entity(server)
+diff --git a/app/api/routes/users.py b/app/api/routes/users.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..ffc73b0cb0450a630f196a76106876cf2aac2d27
+--- /dev/null
++++ b/app/api/routes/users.py
+@@ -0,0 +1,21 @@
++from fastapi import APIRouter, Depends
++
++from app.api.dependencies import get_user_registration, get_user_repository
++from app.infrastructure.repositories.user_repository import UserRepository
++from app.interfaces.schemas import UserCreate, UserRead
++
++router = APIRouter(prefix="/users", tags=["users"])
++
++
++@router.post("", response_model=UserRead)
++def register_user(
++    payload: UserCreate,
++    register = Depends(get_user_registration),
++):
++    user = register.execute(email=payload.email, phone_number=payload.phone_number)
++    return UserRead.from_entity(user)
++
++
++@router.get("", response_model=list[UserRead])
++def list_users(user_repo: UserRepository = Depends(get_user_repository)):
++    return [UserRead.from_entity(user) for user in user_repo.list()]
+diff --git a/app/application/__init__.py b/app/application/__init__.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/app/application/__pycache__/__init__.cpython-311.pyc b/app/application/__pycache__/__init__.cpython-311.pyc
+new file mode 100644
+index 0000000000000000000000000000000000000000..851b7a7c3b53900d6eec1ee1c8c6c69f85b46fef
+GIT binary patch
+literal 136
+zcmZ3^%ge<81V=<wGePuY5CH>>P{wCAAY(d13PUi1CZpd<h9V{)|1(JPmvmx5fj$uD
+zWF{w;Waj7T$H!;pWtPOp>lIY~;;_lhPbtkwwJTx;ss))=%nu|!Ff%eTeqewRMa)1k
+E0Lt1M!T<mO
+
+literal 0
+HcmV?d00001
+
+diff --git a/app/application/services/__pycache__/server_orchestrator.cpython-311.pyc b/app/application/services/__pycache__/server_orchestrator.cpython-311.pyc
+new file mode 100644
+index 0000000000000000000000000000000000000000..e4069a725dea7c09dbd6fa22915bcec034c1f953
+GIT binary patch
+literal 3236
+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
+GFZ{oNUMv&<
+
+literal 0
+HcmV?d00001
+
+diff --git a/app/application/services/server_orchestrator.py b/app/application/services/server_orchestrator.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..321e15a50e478107a3341d6996ed4ca74c604250
+--- /dev/null
++++ b/app/application/services/server_orchestrator.py
+@@ -0,0 +1,53 @@
++from app.domain.models.server import Server, ServerStatus
++from app.domain.models.user import User
++from app.infrastructure.clients.proxmox import ProxmoxClient
++from app.infrastructure.clients.solapi import SolapiClient
++from app.infrastructure.repositories.server_repository import ServerRepository
++
++
++class ServerProvisionOrchestrator:
++    """Implements a saga-style orchestration around server provisioning.
++
++    * Validates the domain rules (done upstream).
++    * Calls Proxmox to create infrastructure.
++    * Sends SMS notifications via SOLAPI.
++    * Rolls back the Proxmox resource when any step fails.
++    """
++
++    def __init__(
++        self,
++        server_repo: ServerRepository,
++        proxmox_client: ProxmoxClient,
++        solapi_client: SolapiClient,
++    ):
++        self.server_repo = server_repo
++        self.proxmox_client = proxmox_client
++        self.solapi_client = solapi_client
++
++    def provision(self, server: Server, user: User) -> None:
++        try:
++            server.status = ServerStatus.PROVISIONING
++            self.server_repo.update(server)
++
++            external_id = self.proxmox_client.provision_server(server)
++            server.external_id = external_id
++
++            server.status = ServerStatus.ACTIVE
++            self.server_repo.update(server)
++
++            self.solapi_client.send_provisioning_sms(
++                to=user.phone_number,
++                message=(
++                    f"{user.email}님, 서버가 준비되었습니다. "
++                    f"ID: {server.external_id}, 플랜: {server.plan}, 위치: {server.location}"
++                ),
++            )
++        except Exception as exc:  # noqa: BLE001
++            self._rollback(server)
++            raise exc
++
++    def _rollback(self, server: Server) -> None:
++        if server.external_id:
++            self.proxmox_client.destroy_server(server.external_id)
++        server.status = ServerStatus.ROLLED_BACK
++        self.server_repo.update(server)
+diff --git a/app/application/use_cases/__pycache__/provision_server.cpython-311.pyc b/app/application/use_cases/__pycache__/provision_server.cpython-311.pyc
+new file mode 100644
+index 0000000000000000000000000000000000000000..935212e8f244214c1f3de85dbd780efe4293b1ec
+GIT binary patch
+literal 2193
+zcmaJCOK%%Rc-H&y`jNO!o0ka4ZBkMfx>4YSgnFQl2o9m5qz7MCE6=!Dy52Rj>p&tG
+zMJR_H!a2QR2`L1HAJ8KQe!wQOl+{Q`l@JGRi^8cVzL~W*b_mSQeDgi#@xA8TAIHY>
+z2-^3PH|<{)gnsA5paCt~**Z-72qP>xs43MXiQ^e3)0Atnz-32isx?*Mila5NwXDEZ
+zM{nk8Ie}|VzFDXhB$Pob2xoT?)(<iW9l=Oit%!4vQ8oW3C#w=u*494053}}|&<#QX
+zn|MUM4coUp*LI&i@*KOq3EV4*{4>(>d^_+c=Z&xVgpP3DNLHmMd`j!<#1E(iJL-K6
+z#H9C$vyTATM+DU*jA|Jy)nuF@3YLkA6{2C4WE(oxc9fcqvm}RglE*n1c~Ss=0r*8+
+z1bfC<DZMn&Ve5kjZa_CHEzfp?O5jzV+4W}?uhFQqhU}{}JX*0TZ7`(LYJ;|xPYhN7
+z5}aXDu$JYxFhRAJa0e@bHRpDzLxyob%P`LF3cET|2brn3lL1N^kR2JQG%g(lD85rP
+zjKC&owW`np(6q?G7zg73swz`_;xsOk`COR_Z?ErIt=19@2%r@}G?%~*vkvz8OQ{FU
+z#89KP$#m1ST{|$%t(gm+GzJo`fqx6YHj2m5+~Tg%(`TaD8@tNhcr-N!Qz4qW#ksSg
+z=x4ANv8-^QjhWJNESKqymng(EN`f|Z>w_o2S9AS^1K$Ei?V}F*f^$Xdrmh=s_}q~W
+zfPa+Ao+};2F9kzE!53D1D+Sr}6CgyHj{I}x0B$`>1Mpmhn^V2IL#GYxR7Y=?xVG9r
+z-W|GQzyobB+cS6!sGB=qd5(3|jxzd);U*OlL|)wzPq5;80VHzU#Z{T<-d8T<tBvU-
+z96_f5RP!Q(nEaFkEdRuE+T;PH9;MtskylLLupAp(0TD^XWD8@FYb=-MN>!s*`1)%c
+zq-QgQN0(_yBKh2Wk$x3g29#yV*QDMK$kz15r0NT1VU_<KfNd0&uI_zvTDpExy53zp
+zF5T{xZtp6<jFFUE`fXw^eDlungwdNY!lLm<dAd7&7`$8$%PYs_m0o#eSBv!GUg1=q
+zJJIJ}JUP}Edip}BF8~*^^m6v>sXl+A&vzdl-apotd-`&yFGr=x-7$I<G+KqK0<Xfg
+zn#43&-ZYyYZaW+=n&y{n%jrw9ris0}X;N-H<zc5hUnmbNo#23{6_cS3CLX^I<WET4
+zA-qKS-$4M5_&Wf$(=Sr)h048H$*a{@lQ&}(=2%15Zp2xR>8Ly(=Qx%})9=Lvj-gR7
+zlT)W&1Tli?@O?48oEOtCZ;R<aL82g6iF-n6w;`v5B{NV}4D2;6+cm%^#PN+J{K7o8
+zI3(tLyH0!~O(XcJm`NEGUSi99we2>j1^#K*p&$^0*In_Kv0-O&v?##IpGWwa@zVCc
+z`_i)A-^ByN-sQVs42q&ST`1VUX1KB^5fs5$gw5vxd#!(%<icHQfPmK?{|5lEEJ;#?
+xCd1MG3cVAK_6R);M|*@;!_gk0Pr}h2q0ht79&0nwRE+)&{^Gp9FA)eM{s9B{D+~Yt
+
+literal 0
+HcmV?d00001
+
+diff --git a/app/application/use_cases/__pycache__/register_user.cpython-311.pyc b/app/application/use_cases/__pycache__/register_user.cpython-311.pyc
+new file mode 100644
+index 0000000000000000000000000000000000000000..e664231e8720147414c52a7c580ba07b7090f6b1
+GIT binary patch
+literal 1192
+zcmZ`%y>HV%6n|%*9k)%%&=d*E;7C-+RB|LHq@pe$Au(iV#S#!Fle>VC<Ak##kt#?X
+z7&3HkC6-PFR0c*y{)7}&B07nQi7hBhop|Sb(DL!@d+*)5Xa9ch-FvgRI1ebVmsi72
+z1mK(AOodLI(M@#rfCDEHG)R>Y?HiHNFsmj31MUJhUje6w2EY-nu~aFyw!pK$>#au=
+zy`Kn)_JX#XqSZ{ov?)8aNqT1N$!2r|ojnjxB^;^-CsmUhg4PWLqE(AiVRH+YEpm06
+z=P>4Q2f^l4ep5UNlT=8JvR%3@MUV<Nh`HMmGQkr!aNBs~iZ~6^j<4qBZz?nHh^~DT
+z*Ql6L>5?um^v1#g!AQj;GKT@rP&5%yJ=-MuL)SgM9<*9zTv1pH(y$qq5tY?~L?mT7
+zp~y55ztvF=V__VojBPKUrSDI}4*oJ(M70Bh%U64Jx6s39gaJ^NXar%T@~x-MSg^R=
+zcr2u{rAXT{uIU1%qOUV6=pj0Lkm7Yu1&cG@lk?a2((J;sS<b=P)=WQxu6c+VN3$$~
+z5p0Z6@eHZy$_uDGQ)<|(Im!$;_o$rHfmw#4x)F&c=%PqHk}4-&h*~=p+r@J&nM4;b
+zB`KrYfv<(7{nfWozp#E>SU)MO_vpaM?-sr|E1#W}{X54_>BK4ZozkGN)LW2w{HB6)
+zf-R4OhG0z1GuCMGcBK70W6#?`G&#vJ#+x<9q-G{Hq%xCKj>}oX?K{Z+ml2kFb~9z6
+zlRQGTGkXSftxwm6lvt|=8$&?zr?O3}xW6?7G#|{&e59HAuNp&Z)QV@Ri#TdNZ{jS(
+zK9(b*#Me#DxGFt|ei+wffb`on91Y>m#y%9|R5pur#sy~uUD8$Qre#H*I=9BX+K^W;
+nrY}BufNE$GLI!ZHfBqf7z5e-kXwQ-25dKy_bnNFp4l?jxqk$Pl
+
+literal 0
+HcmV?d00001
+
+diff --git a/app/application/use_cases/provision_server.py b/app/application/use_cases/provision_server.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..c40adf093977c1480dec9b5cd50e8e8a3176a063
+--- /dev/null
++++ b/app/application/use_cases/provision_server.py
+@@ -0,0 +1,34 @@
++from uuid import UUID
++
++from app.domain.models.server import Server
++from app.domain.services.provisioning_policy import ProvisioningPolicy
++from app.infrastructure.repositories.server_repository import ServerRepository
++from app.infrastructure.repositories.user_repository import UserRepository
++from app.application.services.server_orchestrator import ServerProvisionOrchestrator
++
++
++class ProvisionServer:
++    """Entry point to kick off provisioning for a user purchase."""
++
++    def __init__(
++        self,
++        server_repo: ServerRepository,
++        user_repo: UserRepository,
++        policy: ProvisioningPolicy,
++        orchestrator: ServerProvisionOrchestrator,
++    ):
++        self.server_repo = server_repo
++        self.user_repo = user_repo
++        self.policy = policy
++        self.orchestrator = orchestrator
++
++    def execute(self, user_id: UUID, plan: str, location: str) -> Server:
++        user = self.user_repo.get(user_id)
++        if not user:
++            raise ValueError("User not found")
++
++        server = Server(owner_id=user_id, plan=plan, location=location)
++        self.policy.validate(server)
++        self.server_repo.add(server)
++        self.orchestrator.provision(server, user)
++        return server
+diff --git a/app/application/use_cases/register_user.py b/app/application/use_cases/register_user.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..339c2695ab48cf9b23df2d89270b84c0850ca5a6
+--- /dev/null
++++ b/app/application/use_cases/register_user.py
+@@ -0,0 +1,14 @@
++from app.domain.models.user import User
++from app.infrastructure.repositories.user_repository import UserRepository
++
++
++class RegisterUser:
++    """Create and persist a user entity."""
++
++    def __init__(self, repository: UserRepository):
++        self.repository = repository
++
++    def execute(self, email: str, phone_number: str) -> User:
++        user = User(email=email, phone_number=phone_number)
++        self.repository.add(user)
++        return user
+diff --git a/app/domain/__init__.py b/app/domain/__init__.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/app/domain/__pycache__/__init__.cpython-311.pyc b/app/domain/__pycache__/__init__.cpython-311.pyc
+new file mode 100644
+index 0000000000000000000000000000000000000000..4a4de8205c246b222cae2071020b76b2381309eb
+GIT binary patch
+literal 131
+zcmZ3^%ge<81V=<wGePuY5CH>>P{wCAAY(d13PUi1CZpd<h9V{)|1(JPmsny!fqqJU
+zZenJhetdjpUS>&ryk0@&FAkgB{FKt1RJ$TppfZp_#r#0x12ZEd;|B&9QN#=s0{{%B
+B8KD3G
+
+literal 0
+HcmV?d00001
+
+diff --git a/app/domain/models/__pycache__/server.cpython-311.pyc b/app/domain/models/__pycache__/server.cpython-311.pyc
+new file mode 100644
+index 0000000000000000000000000000000000000000..5ab5023a8d669128d25bd75431ce113fbcc309c9
+GIT binary patch
+literal 1502
+zcmZuxJ8#@Z5MGkY$GvoVM2PKk;*0FSIb5JCl5|FZv-QA5(#fzQ7i<{jc9qcK<Fe$*
+zkt+%?0+mV=yG*4Zkc$-g2l)d$Kn1atfmG>EkSkZ2C3Pn#@^bj?H?y<L-I-bbUa1rj
+zw1fGNoo{4>{t?Q!Y3JnZXCN;SK}2$qCz+Bbo3bQy*;PEnR5Gr(*i%h4<Ji?a-PAq9
+zG$bUWRYcV1h-kDx)gz41F}!&*i&V<Sbr?5}U<b$W=Isc&<FSIw5-Dt<M)6-^X~?`l
+z?8xr9b{KMX$DuB1NZbG$jU0~x$IJe}13$dI-C5%5VBnC?dz00GNaxDg0+1JoB2yyB
+zl!;_2L^d%|OqF0$BdVzr4Zf`N@)l*glx;<JGzhugr#^A~?|8Y-f?X$c0$*sF-HV)E
+z%C#NaaVg;?7P!z`-`c$&x($OHmgU<XwJct=EH5AfSMaiB{W!4Q^AY{wa(AiIUFGG6
+zk2W87wmO?#p=s?0Uw0lab8V&FSzlh_rAM3V&|CN057z!bXW~3>Yj(fiB7tW+ehXHo
+zZrBR5T`%_cm`HU7I*{-#Ks<TUsrTd6bnc^gJ*~{gD>=;Gir2)$u8(J43ZVj4(av50
+zT!e5N3dK|?rYe!|!3foWDHDb>rav*nRME@=)xkp*b{WwkExpo?AU((96d|*mt)@>r
+zDo>`esQ_1etF!{E8N!zo%xS8T!ZSE9*owIgl3C(fp3G-=^1e>}$cgsq5raHYQg{4%
+z^gXTTkzC|P@YJWwatOzL*Y>&L20c51lyfc2$^j~_O6ZO~a3gC6N+4i+Tn6`Ik5MQ}
+zV%brbm*`IsWxnmgLX8<V4Lf8r0%ifYZdoMgSr!x7;Z@7BeLsN3;VU7Oh!RFD&)}Sx
+zQWqfZ5fgD_qKKIaz_mft^Mj}Cwy@k0a7{p#!5f0z977dI_$$Cg6~yQ@UQF=f>#5ne
+z8+Z4+X|WP_;?902otlX^;*I@{w08HT){0jS))U+U8RAx2eeYoK+jdfI4y(<RYBRon
+zfD_yV8RBMItH1o>&uf3(N^0$4t$k8!$6p;932uW7aXbBRAznM2JB)t0k>CZ8VTM5R
+zEsNcD8)aUa+;<u>QF!^`vm;{)cb$pf702SDXA#WfB8ohZT6XNqp?GWD%WvS9>{IX)
+z<re-8Fj6E*O3^3DyCg*)B$p*c^T}mN(aq#tGSXD3K0;UF@UxfrRM_8K3{E4tG?EL_
+X?Gd^Pr^5C|z^MX$&#(W_GYj5-o0WKj
+
+literal 0
+HcmV?d00001
+
+diff --git a/app/domain/models/__pycache__/user.cpython-311.pyc b/app/domain/models/__pycache__/user.cpython-311.pyc
+new file mode 100644
+index 0000000000000000000000000000000000000000..724f8a7489dc2d6701fbc03e9cae9fb608614a89
+GIT binary patch
+literal 974
+zcmZuvy>HV%6u-02&R5e&h(N1=@Pb4Xsa;?zNGV7a8M>ehSV*VCccDi9NY7_bnSxZI
+zZm^Y+sR)&Ufj`8NIz*l-F|nm8QzzazO$BP7-~If1AHI9<{Jz%fRRr>(dDnlA5&ET#
+zxmf4q^aYT8#1Y2<3bBhr!!@wBjlc{|*DSahkkE3i&~|N%1UAqH;$#<b>%c(h5Y|i%
+z;B`1RkXz#RGt@5q)}FSJS2$D53s{om*1#75Z{xfSKB4?jK%DgZPoLygn)>{{cd-i)
+z^V~Rn17sfw<YJCoqYpK^rXa%N#u`KlW@=_2VT;mtasXW)!kUR&78S^~E;6dGYxCHp
+z+yzmETwCYz5_D09@)9B6J$xKX;iNzv5h-8oI8qFyNVE~Xa#-Xr&x_MYIewJ*TsUe=
+zIKzOcK`g_S+!7)4gM4AQ6-R<bY4}n|xP}H71C|Dg4w$E6xsw|{&#Rska66nbwb`!c
+zWlAF!3QF@TrD4p|K=TDkw^J6JM@p3P*aNqjD491XWl<C>ru;ZcD3t`dktGdv4Yme7
+z2)UgqFN)vFMKHdhQ$TdK%!b2N9z(s+DjX+*WL3AlGTf0Bh!>!DNPK|NKhH7Q$jHWV
+zZE@5a_1^a;*P0p8Iws9Y<N99urJprA<3{JG(HX7pk&JXe$D}i9IiDZ=So(P<Yjwx1
+z?oq2d>U}C_qzgJO5Qw}vKYJ7YN$p~!L?ZQ=%vvmZB6^T!Jr*q&Mc>dl#THAz&dO`E
+zi+m(oVCqRpJ_1ZljPV5B%dXN1x}E*66Lc%PN~bn5YE#3;>v)Q;#*@PTr@#{v(s!3H
+Ie^3<s7tdGrCjbBd
+
+literal 0
+HcmV?d00001
+
+diff --git a/app/domain/models/server.py b/app/domain/models/server.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..fb1a052be1d16965ce6de5a7574454ab9c689a79
+--- /dev/null
++++ b/app/domain/models/server.py
+@@ -0,0 +1,25 @@
++from dataclasses import dataclass, field
++from datetime import datetime
++from enum import Enum
++from uuid import UUID, uuid4
++
++
++class ServerStatus(str, Enum):
++    PENDING = "pending"
++    PROVISIONING = "provisioning"
++    ACTIVE = "active"
++    FAILED = "failed"
++    ROLLED_BACK = "rolled_back"
++
++
++@dataclass
++class Server:
++    """Server entity tracked in the domain."""
++
++    owner_id: UUID
++    plan: str
++    location: str
++    status: ServerStatus = ServerStatus.PENDING
++    id: UUID = field(default_factory=uuid4)
++    created_at: datetime = field(default_factory=datetime.utcnow)
++    external_id: str | None = None
+diff --git a/app/domain/models/user.py b/app/domain/models/user.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..5bd9e372e3095877806cc1433acedbff35eb2294
+--- /dev/null
++++ b/app/domain/models/user.py
+@@ -0,0 +1,13 @@
++from dataclasses import dataclass, field
++from datetime import datetime
++from uuid import UUID, uuid4
++
++
++@dataclass
++class User:
++    """Core user entity representing an account inside the platform."""
++
++    email: str
++    phone_number: str
++    id: UUID = field(default_factory=uuid4)
++    created_at: datetime = field(default_factory=datetime.utcnow)
+diff --git a/app/domain/services/__pycache__/provisioning_policy.cpython-311.pyc b/app/domain/services/__pycache__/provisioning_policy.cpython-311.pyc
+new file mode 100644
+index 0000000000000000000000000000000000000000..4933239574947c084b5f5b774933a838f7d3209e
+GIT binary patch
+literal 1519
+zcmaJ=&2Q936n|rTy(YU0VkP>OZZtswu|?gbs#FlINRV0)a)>~*99Bppvok41UfUge
+z7bVIesyOt(JrM|r6Q!bu9QY%8=)sZp5Lt?Z#EILY^u(!e?6s4SwBzSD@5|5c{pQW@
+zwb}&WdUWcHv!MaJQA)myv9Nmyg>~S-i3>f_Aw<cVtM&AbPC$ce!1af~jpvx*CBE6}
+z7`$`~n&w-jHc4V#kA$@Ex&meMmXHG>yW`MwD~*-i1r*jnK!<SXXq<F(t_eewJ}siT
+zeo$XBxbe{Fn7ky)+~j4{Ez~Vu#sZEd^&8S3IHBWvj`#Bo-*vjnD|6rbJ=^i9?7JeQ
+zOTMH7+jY1dVF-P2Pek{Gq&5xHI%(JT=v_gBJdfb5<fQGo{sY08>v!=p-wTskZVFu6
+z3%hzzFo2TPyL%hiIz(j8w@RL)_Oh_70xRSLaoVA{0&EW0DOqgli5`kbmNC1ukfFf{
+zg}bz82~`!8()VB3LD1$Y3T@S<(-mR6=n!FGK?+qXSWYa)9M6duTbVqJWh-|c!^~k5
+z*&6Ij&%|fG*_ysMoWA&*F|?+38uVFXtI-}d+DiW{PH7i|Au%(Q6H|()FTKTX(H45u
+z6sEvEMqwRR$$i|jwF>tOpaw*K9OWZ~Zcg?`K7pqnfcLBNtGwyLO!>6Kp-kHT$fGi)
+z;OmPkAN}No{UGpVBsk5d;xb*S@3*VbxJ;X+#L6Smvq>gy+iqX{Af+!8Lj`5$r^yOd
+zC{G{@6)cp>DsG829#?VXiR8|j`s@y}HQ274d^G!PW_bEiTv4=B|2%G7+gy6(<A$_V
+zpC8ue<LbN${C0y6r!K@5MQPyd=Gj;0<Hjt~R()<*pNp$=BOR(=VSqf2Kfr5-L*m&z
+z!B{fESkLEpvrw)w_DkP($DT4{-0w0b74$f(k(8=NsnD0Fko^H^y0l4YDyw4Z4Si&5
+z#j|ZJ#KywN&`K9xoZI~R&o4)S;$K#L^T)qysr(_cjM7!IF&Kf`U(96t|MRRC_4h?Q
+zF*8~Y@LpuKe}dPim0h0}HY?n)m5p)MOIrFQez@1pd+WOll`C=z9cpw#fo!A`LbhQt
+cK1i?Oe0-2bW`$fOBRHDBOYQ&shc_+bUs9H8>Hq)$
+
+literal 0
+HcmV?d00001
+
+diff --git a/app/domain/services/provisioning_policy.py b/app/domain/services/provisioning_policy.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..80561319745dc5bd0ca360851716917fdc6389e6
+--- /dev/null
++++ b/app/domain/services/provisioning_policy.py
+@@ -0,0 +1,17 @@
++from typing import Iterable
++
++from app.domain.models.server import Server
++
++
++class ProvisioningPolicy:
++    """Domain rules for validating whether a server can be provisioned."""
++
++    def __init__(self, allowed_locations: Iterable[str], allowed_plans: Iterable[str]):
++        self.allowed_locations = set(allowed_locations)
++        self.allowed_plans = set(allowed_plans)
++
++    def validate(self, server: Server) -> None:
++        if server.location not in self.allowed_locations:
++            raise ValueError(f"Unsupported location: {server.location}")
++        if server.plan not in self.allowed_plans:
++            raise ValueError(f"Unsupported plan: {server.plan}")
+diff --git a/app/infrastructure/__init__.py b/app/infrastructure/__init__.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/app/infrastructure/__pycache__/__init__.cpython-311.pyc b/app/infrastructure/__pycache__/__init__.cpython-311.pyc
+new file mode 100644
+index 0000000000000000000000000000000000000000..93b896d17ee8c50c3cceebb507e35fb1def2e99f
+GIT binary patch
+literal 139
+zcmZ3^%ge<81V=<wGePuY5CH>>P{wCAAY(d13PUi1CZpd<h9V{)|1(JPmt0~&fqrIQ
+zT2W$gNl|HXNoi54etdjpUS>&ryk0@&FAkgB{FKt1RJ$TppmLCb#r#0x12ZEd;|B&9
+JQN#=s0{~1_9Wnp_
+
+literal 0
+HcmV?d00001
+
+diff --git a/app/infrastructure/clients/__pycache__/proxmox.cpython-311.pyc b/app/infrastructure/clients/__pycache__/proxmox.cpython-311.pyc
+new file mode 100644
+index 0000000000000000000000000000000000000000..a7544cfa683126c0ca681597c46e43fb18130a72
+GIT binary patch
+literal 1667
+zcmZ`(y^kA36rcUDy)oy@C33<AozNsCA{M%}s2~wSLMb2;oKEBv1yhXncE<4}vmeaN
+z`Yu+AE3UYLA_XV~LZaeBH2EX=16*8jT8WB^&giI8@n+VxZUc<hZ{F;C^XC12@6G<y
+z>9i4yXP0j9-#mo=FpI_T=gR5(pgczuQAeP}890v7UEwC)z;lp`K1S3#MAZM$Md(-f
+zS7YGQ#y!+){%Mvyr)=J1a?B)Xfnr+o^r4F9u6BCmIEDreMFW>Q1CP3g2*P=+L4DR7
+zLf}Jx(4tM&q&{uII)HURTX5XDva>C-{UqDJBREU-<iXB}r+80BdCnw`WLBgU&t32*
+zJ3HI>qwTx+reX|_w9eJ-em@_xFt37yah90%Ce32ik8-{_=4_A2elLujGua!|z#lpl
+zAf6+A#`I|E_Y{#OJ2elp(+==h&`^)jIOEY==oA59XRFteW>dK`&zX!erORM9Qj8Q*
+zlxvIkI(y7g!f6>SwQk*}SS*<?S1Nn8f`a*qiJ>w$@XH%OWS^%)87VD`SQnD@V@tK_
+z&x3{elQJNLr(6><xx9V09^vAB0MXRjAP&&)>-czm^T_|YW3_j!wsHM<<JOUX99)^&
+z=M-E~*;KZP$|j^)$TVK^3C3j&F2e%))p_bXGMnu94t?(eTkhmrNN3Cy&r%%WDjJTU
+zC8~f}j~HhAn#nX0m{aH=KIBY>?KYl|yD0{o6rh_Jdc+mp%L+kp90_6f&jI6D6bd5Q
+z2Gbb^Y9r0y)cc>|OyW-;+zFRKC*C;O1g2e1d#+rCl;uSb%3#7+o`=cSvC5oOc~9P~
+zQwwR;>>U%K3*rFHR?*tkXZOGPVtO8%C&2Q8iTT<BE40N{jZIT++tH@o44am{Tc2k_
+z>_+ipJYvFJD1%F|D8)sNhY=Ty8g{BQ;ELl&YnJ3%g<HP>`xUa+Az}^LDrL}2*^>pX
+zjXJKn)l^rV0|BT4wAMY+77E;a=(#jX7$IewkOWF3jJ`t1S4AY|mKGs!l?jn+5J4J%
+zr3YtA6IH%p#1$h9IhJ*4;9Fs?ph`d-EPp5d?$qC%`CjAp3@t^w)wue@c!pql@s^!l
+z6&L+R_h&G{^y0dm{#R6)m?XA(jdC3>Ur4hg;%Nu~nNVTX3Kf!T#$3Of@BvGQ{2{ni
+zpIrN?s6f?$z6?I7DEm-egVRj;)t4Y<p5r(t=$&c(IYIAD>(8ut$?49}zr|nX-QWLV
+Hu-N_q&I_`S
+
+literal 0
+HcmV?d00001
+
+diff --git a/app/infrastructure/clients/__pycache__/solapi.cpython-311.pyc b/app/infrastructure/clients/__pycache__/solapi.cpython-311.pyc
+new file mode 100644
+index 0000000000000000000000000000000000000000..fe0d9936c20ef44077472d7f66acdd4f65bcc84b
+GIT binary patch
+literal 1252
+zcmZ`&y>HV%6u*m|IE3_54MnXGR{2sS<a9t(st^(a2^DBSm?_K2^_^RTzqqrD8W=is
+z=)lC%|9}s%F!E<~$WU48#KdM)rcS(boG20P#rL~+_ujpG@AqE5Oia`ej8Bal?voNi
+zzvN~x)IvD94Z;DUh++@<xPvh&p~r}p_7GJ*!>#Wy`=e8$s)?HA-*Vf;X;rW|c7sh}
+z7Y6xKDK>>;hB}xcxQaW9blOp=!pc;IS*8`ILbW}$Q=t`bTutj{=vk5b&~sT3cW<t{
+zf$LkIZa#nZ;KiD5uA91G0cBjbHbl%VJ9fjsu<^+AGFS!Xi3f0i;t|#Bq1^{WhDnWC
+z$eZ~9ivdC7KFT8&gG_-uh#t3_8kY{zNs(tkAQSS2?WEd3m>E$BW^)#&HK{A)*+T8`
+z&?iCSZ!n%-9N7Tns$iZYWFq?Mbt{TmZs2eWxJc|c;jCrn%!yXtlM(HtRYHKpn2>J6
+z93j^j9Bbf9+ydA|$MaWv^TxjVv3|U;)LXa%($w+dwcg_0eYID;e3*YHV2aXG9HyGj
+zgs?VQT7g6o9<=QtePAME%nKn|g8srlQK|dhg!<`Lkk@kCwTjXjwVGaxS6fWy42tgh
+zk;i=K14~v}e-|bm)f2(=7%W1^acx(&#-pdJ`c@oAVzt$xY@2yu#JDgD0^nrmx%~|_
+z6+Qvs@EHlS078ZcFY`%Q(}wIW67g``74RmsHW9w)E{zd)rcGV?x&W|?vPm>Ow;%Iq
+z*fllDe_;8HkhDgKAJW8=a-ER3iRBd<jSw2zgzzaDg#zW|mq6kT3DQp<9+$nBgKSOl
+z5@2`uJ5rYq)#Xf8$}1TfLQN~reN{39%MUwWe$sq77y8f1m)cDwU4j-f##_v=!@zMj
+zjlq9EZ~1;`<KdoG@AcEY&#!<x*$-k3AX6~LM`-16{L3m+crHW#!ykF}_Y6fI>OXMH
+BH<<tc
+
+literal 0
+HcmV?d00001
+
+diff --git a/app/infrastructure/clients/proxmox.py b/app/infrastructure/clients/proxmox.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..9141f7261379297ba50c8a6855ddee92503ee8f2
+--- /dev/null
++++ b/app/infrastructure/clients/proxmox.py
+@@ -0,0 +1,26 @@
++from app.domain.models.server import Server
++from app.infrastructure.config.settings import settings
++
++
++class ProxmoxClient:
++    """Thin wrapper around Proxmox HTTP API (see https://pve.proxmox.com/pve-docs/api-viewer/)."""
++
++    def __init__(self):
++        self.base_url = settings.proxmox_host
++        self.token_id = settings.proxmox_token_id
++        self.token_secret = settings.proxmox_token_secret
++
++    def provision_server(self, server: Server) -> str:
++        """Provision a server and return the external identifier.
++
++        In production this would call the Proxmox cluster API to create a VM or LXC.
++        """
++
++        # Placeholder that simulates the call; integrate python-proxmoxer or requests here.
++        return f"vm-{server.id}"
++
++    def destroy_server(self, external_id: str) -> None:
++        """Rollback helper to clean up failed provisioning attempts."""
++
++        # Placeholder: perform DELETE on /nodes/<node>/qemu/<vmid>
++        return None
+diff --git a/app/infrastructure/clients/solapi.py b/app/infrastructure/clients/solapi.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..0558e27259511cc568021c7d90c2949d31fed2d5
+--- /dev/null
++++ b/app/infrastructure/clients/solapi.py
+@@ -0,0 +1,19 @@
++from app.infrastructure.config.settings import settings
++
++
++class SolapiClient:
++    """Minimal SOLAPI SMS sender abstraction."""
++
++    def __init__(self):
++        self.api_key = settings.solapi_api_key
++        self.api_secret = settings.solapi_api_secret
++        self.from_number = settings.solapi_from_number
++
++    def send_provisioning_sms(self, to: str, message: str) -> None:
++        """Send an SMS via SOLAPI.
++
++        The real implementation would use the official SDK: https://developers.solapi.dev
++        """
++
++        # Placeholder hook for the official client
++        return None
+diff --git a/app/infrastructure/config/__pycache__/settings.cpython-311.pyc b/app/infrastructure/config/__pycache__/settings.cpython-311.pyc
+new file mode 100644
+index 0000000000000000000000000000000000000000..abd38ada2ae9a70b5e8e6c7d2d157d0ad435e5fd
+GIT binary patch
+literal 1791
+zcmZvd%}*Og6u@`wv01=;8;l)eZ6HWBRgF~PDl(9YkOg9bjew-om(}7OC#%@I?(RAQ
+z)Ptq=K&2jhtB*cWs`L-YpD`=>V9lvgPrVV56Q{me+kC{Coq6-|elu_M-W&VRp`if|
+z$}f}i+Sgu=`<G3+#n%~JZNT6UPUTd-$d&jUU-INUJm=vyIo0zkr+P7e4tw82YnPnY
+z!(s0^Ox|~wxExZ^J{R}>$5!GV8hEN$cpuxgroXnRZ$raHHGf0H0Cgr;8J=0kT#i?{
+zoaZIn!aX0U9@YCdI`@DTXzh~oVL$FueJe19J0R7s_VqA=%Lq42zdF#v^t;U94HHm@
+zdYA#18NS1e^e}@iGkS*^>tO;eGk%Ae=wXIjCU}RL>|usoW~$9VY(fy5>CgN#qJ|*~
+z5h`?De=6-&bXzN7F>mMv?RCXeY|YTcf?<mI*v6)=6h#Z0@3cI&L`7FcrCcs*`8K8E
+zf>J5kR^l}BN;|^qh6>>nw+zb`*DAJAaw#gT?e5B%wH+zWQ!m!vQ31}7b)|%<uW00z
+zBJE>@lzBx5L9LmFUc$P4I{C)7%T{V}v1}U0CF3~Jh6B5M*~6Xep}dvdKcIn*Qhozg
+zDMv@U+Jo%2l#!o5qoZBIHr`@g)>In2&+JR<d(r_7-sdcwH?d6z_Omb6cAv}J(vNi5
+zGKxxBlUaL<Pv}rb*EwM9j=HmZutRL@Wq0U!M_(|FlB`!sN7%fV@{s6mxtfCRHsx8u
+zs~&hjUI-n!9_fZIvF=9f6eYlEr@o3^_~vmY?xTY2`c{_dfGn2`wNk_|4#@IP6{X0$
+z4l@C^$OWy4=~#CpV?FQ2?=S9(UE_KlqO_>#1yiwXvy!(fCSGhO$)eSHxQX%!^|!BK
+zK7c(zXcik(Z@$(<_)KU;=ZFw)S92Eh<|7c9_^26WlNlyrAZVW~t43ayP4@iFezxQV
+z>vTkx6<s%MH=!)h2bg}Ci7_T7n3!ZD#6*}0X2N{Pglln*jr?7~&bPL}<F_}haxIi4
+zDEm(^T$4!TyANp++;oDQ&ERHr>nu;uCR7J)wnEWbrT)W3oP?H~&{8wBRNbyk5VQo<
+zK}(l@E*z`-NG$o`37Jki)9L1Py85CvM^GB7gVL?&!@AU%B?~Jgy6Qw%o6%K*f;F%J
+z{i=gjTjG4f*Ek}HXGD}7QEG}3LDO|O0eZ<n64-bk*5@0ZivWovok+47Nmetpb%K&m
+z9h7X%%+_BvzP<RK%q%-I%gvc(f+lMgLC`NdXt@=etK-Jgiyab6Ik8kTmLh1X?j;EN
+zl!H>2$m4r-$@PklZ0*w*6m2In|GGI?K2a6;UCEp5U!fgMrlUePbv}#CwXo7o)hFfx
+zaO^2qhafJ!JkPhdugI6`rGK1<TlR{xpFgtIPq(TCE)YC>{9EexR8?S~d)@y5T#n%(
+
+literal 0
+HcmV?d00001
+
+diff --git a/app/infrastructure/config/settings.py b/app/infrastructure/config/settings.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..d88b516a4181586263a27c434cdcbae86e262f8e
+--- /dev/null
++++ b/app/infrastructure/config/settings.py
+@@ -0,0 +1,25 @@
++from pydantic import BaseSettings, Field
++
++
++class Settings(BaseSettings):
++    """Runtime configuration for external services and application defaults."""
++
++    app_name: str = Field("VibeCoding Host Automation", env="APP_NAME")
++    environment: str = Field("local", env="APP_ENV")
++
++    # Proxmox settings
++    proxmox_host: str = Field("https://proxmox.local", env="PROXMOX_HOST")
++    proxmox_token_id: str = Field("", env="PROXMOX_TOKEN_ID")
++    proxmox_token_secret: str = Field("", env="PROXMOX_TOKEN_SECRET")
++
++    # SOLAPI settings
++    solapi_api_key: str = Field("", env="SOLAPI_KEY")
++    solapi_api_secret: str = Field("", env="SOLAPI_SECRET")
++    solapi_from_number: str = Field("", env="SOLAPI_FROM")
++
++    class Config:
++        env_file = ".env"
++        env_file_encoding = "utf-8"
++
++
++settings = Settings()
+diff --git a/app/infrastructure/repositories/__pycache__/server_repository.cpython-311.pyc b/app/infrastructure/repositories/__pycache__/server_repository.cpython-311.pyc
+new file mode 100644
+index 0000000000000000000000000000000000000000..2b7c20d53a3b029fa8159575b34e460adb9fa403
+GIT binary patch
+literal 2191
+zcmb_dO-vg{6rR~#uNQ-BDv}cV6E<p+%0NxpG?AhpPDoWQG=ZcCOVxI>GbWqvuHD%+
+z6_$}WAeBl;O{G?F=z$X@;?N#@=&hIDY7kPaJw@uNH!Al~aq4@swuOPDmyTz?eKT+7
+z{e1J|AF|mDfwFo2iu=1l$RF706s;|^?t`#F7-7^SJ}pv;vf?SeT2y_lsL8(SrF^}p
+zOIh>MzELzNQOJjcrB(^kx54@@w4@aKSbCo1jX$xQr?GJ-;=+FD@w^giGp-ZG#z&RN
+zEeEy-TJ6DuJ2UXr=ebzq!f6|kpH#cks(`RTI4M#_iVCAel_{&Fs4<nNn8s2ijp?ge
+zQ9ssCLqE+7ZZM7a@zhAyF3jx%U4~_(uK$FtA9MpO1qlqqgGo$tyiyL`s4SLh@6Ee@
+z#p9+Myz6rxM$8Hqp&Ld#aJX423p12ym^_Hw$mL<dp<T}eC?iCL);b5UL0nQNR#(l)
+zJb6lIkufW=5+Xk#_evoeF^@j5E0sw%C<!}^MAeC^f=`N0aNuk*S!Q*|mI{?6ux7b|
+z8(CIu<YYdDj;bH*hgpCX(wr!)Y3tcF__Z*$SWm3Ry5Qh3n02~44O+}bW^@^Z4N|9d
+z@))F~)am1H_ERu~847guR1pL4i4~WDh<?SZ03lj7P4NoqRGYEdxl<9tD5_hp0YI>C
+z=P}qPrElFm!)(YZ20`^d1SxQn1p4WTORrX#9r4=msn8MyCL%5%U>tE@!k*=_vqQQG
+zlYqBltZj8U168-w={Ah-c6Dtg^KB;81s;JcseA(#9S>Q&1p{YL2}>}=5Q7COb3^OP
+z&vNE|&fFT=%Z(r8#v8_Xl0>=+S-dcXSy=xi-5_hUL>XN*{yUj%Sg{K&DKn(E4|h+Q
+z?YTD^OdNvN8Uy$aTrB`&pX8P)oUp_O;8)6L@?`#)t<!Im^+C8z^7$!$5y;^4YOEBl
+z#cC)P#YLDO;<+`=6?xo_GE*L0W2fv_rfct?+FI0EaJ?-gqA=x^9oq}1LFlYO4#O(|
+z|E!Qk?p{(i)t`rcdGoj7{abe%x9&bs0g@_N?QEUCXnR#2c6LvOCNILL$wkQaIImrN
+zd2quR$aoS+vl9q}vl)HA{A~34{^<3+(HjS&H(+QlckcjZ826HJviMR2w$Cjq&RCXT
+zW>pX60n7TlYI|)>+Ok;Lu`H1TA0mx_F2(BzIs(4h^2iA!SiFO92?6heOiA>igkV4m
+ze+5|S{+inDhIac<qp8V5(gmHS#x}3wz}VJ(`8f%4#>aAWM?0y+b%!uxVpA@j*m|_H
+zcyRS5PMbIhFl~+|PUh&&qn{QJ3ez}ej=mg|{4lH8d?wC0WzXXd{?CO4`=KMri1lcx
+z;sy%>540pI)~Z#PN#f!Q@VpmT*|*)G0PJ%wEWl}lKgEP*Nm?(FN5)jLP1E8USj5L6
+v{2Jg;rIa?w<wkF9l1q)VYLlFA^w#HOywO_^^+AdZoQ;3U@xNc7mCXDLNF)73
+
+literal 0
+HcmV?d00001
+
+diff --git a/app/infrastructure/repositories/__pycache__/user_repository.cpython-311.pyc b/app/infrastructure/repositories/__pycache__/user_repository.cpython-311.pyc
+new file mode 100644
+index 0000000000000000000000000000000000000000..47f0c30736131097520420ef6c5e07c76848bed6
+GIT binary patch
+literal 1650
+zcma)6&1>976rYhsTKOw#z9|GMV>k9TWDO<c6jCUL)E5Wp_#z5}q8TR>B<*ITt+BI^
+z99#$`5Fb+PqYuT2@jtT;fi5}~dg{%^J>}H*W^L8G@gbv`H*bD#=IQs|Jn8Mk#3+IG
+z+vTrSU=i{cE>0RdR*oKkvPA?DG$APsDMj5%tke$el!eT!?Zipl&^0<sYN;1`lvv~*
+z5zYn??k;%WhtY50h^Q@*y7xCO>$LP13aO)qiL6^Cn^$pBdiPs}YGzRaR<^vnFmL8u
+z>iF1&nVjRr(NCak5lKQSNN5Qf+QQl(ArrQA1QX5*6Yd5JT~U)Y!K5dhFDpM_^T0L&
+z_~-y`i4nlZgacGZ%X7={_8(=dnX96y*VeyVQfVuZfy!>CG6f{im9Y^ltwyb2RTYne
+z`R@a>F_l>nVN5|1L9~sSRtyLviVz#d(IpUDM3D~Rm06G_vPTyo11@g^iF^-olFMWz
+zM;F1zZ=+UgPGu`P$_w3&i?)_?6&EG*IXuKGWUbL!D?QFtrV7s2uMWo5I5CWY?|cHp
+z3(}kY<|TVI_7a{WWK}ZsSh`xmyRyZ&x>vAa6ef~sP_{^icE}UZ`mIBsR8ijn2qV+@
+zqPnHWVJa;pKs^Vlz5pUe&q1JlwAqmm>lcRD0*1TuD<FXAS5ruIbN<b}1MgbbbbTHV
+z*GvwSIGgKj*aBQnG2N+nf~jg9x(oPzWgB8|Ka#}>{i|^3G<}T)_X&MCfb>r2`xjq5
+zd;R>^=i93X{>%q|rt8fZ`e)b5Ejal(taoAGK8$`F;_Ut$C2g5&yy<>D^|Q?ql^5$5
+zhtiE8mgs51fB2K{{mBD=>VrSk^`;Er`Z!it7NwH&a+LG5DcT9@<D5TjN6E3J#<^(5
+zoa-;Zr>>#Ei_|U({J2flG}e>824asG?}nisK@^1tBi{t^qI!C4q01Hy8Fg+Pl1jML
+zncijyOz&JW)3AUYv)i{2o!$B2-Gkp3jXEsQ&*tOp;!QSu9$o*B^~oZ|MfidEaWhF|
+zjK6@q5j~7eSfyL6wN&;<GuUN9hL5YQgh@ep1-|TtXr__M8jwPn<PEIjex^+PlXwhE
+z$mHascc-7}yZSm{Sf}|fAP#LxX^%{I2YZi9cF*cPa=AO$|0FZr!G7pYPzd!?@egAE
+Jo?$RF{{!l6a?=0+
+
+literal 0
+HcmV?d00001
+
+diff --git a/app/infrastructure/repositories/server_repository.py b/app/infrastructure/repositories/server_repository.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..b09cf867057ccbe72c46e2d69c23485192225562
+--- /dev/null
++++ b/app/infrastructure/repositories/server_repository.py
+@@ -0,0 +1,24 @@
++from collections.abc import Iterable
++from typing import Dict, Optional
++from uuid import UUID
++
++from app.domain.models.server import Server
++
++
++class ServerRepository:
++    """Simple in-memory persistence for server entities."""
++
++    def __init__(self):
++        self._servers: Dict[UUID, Server] = {}
++
++    def add(self, server: Server) -> None:
++        self._servers[server.id] = server
++
++    def update(self, server: Server) -> None:
++        self._servers[server.id] = server
++
++    def get(self, server_id: UUID) -> Optional[Server]:
++        return self._servers.get(server_id)
++
++    def list_for_user(self, user_id: UUID) -> Iterable[Server]:
++        return [srv for srv in self._servers.values() if srv.owner_id == user_id]
+diff --git a/app/infrastructure/repositories/user_repository.py b/app/infrastructure/repositories/user_repository.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..b0e09388c6aa2d726e48d81cc0f66cd5d654b476
+--- /dev/null
++++ b/app/infrastructure/repositories/user_repository.py
+@@ -0,0 +1,21 @@
++from collections.abc import Iterable
++from typing import Dict, Optional
++from uuid import UUID
++
++from app.domain.models.user import User
++
++
++class UserRepository:
++    """Simple in-memory repository. Swap with DB implementation later."""
++
++    def __init__(self):
++        self._users: Dict[UUID, User] = {}
++
++    def add(self, user: User) -> None:
++        self._users[user.id] = user
++
++    def get(self, user_id: UUID) -> Optional[User]:
++        return self._users.get(user_id)
++
++    def list(self) -> Iterable[User]:
++        return self._users.values()
+diff --git a/app/interfaces/__init__.py b/app/interfaces/__init__.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/app/interfaces/__pycache__/__init__.cpython-311.pyc b/app/interfaces/__pycache__/__init__.cpython-311.pyc
+new file mode 100644
+index 0000000000000000000000000000000000000000..ce5852fc0fe499c8c42d93a5fd778646341bb674
+GIT binary patch
+literal 135
+zcmZ3^%ge<81V=<wGePuY5CH>>P{wCAAY(d13PUi1CZpd<h9V{)|1(JPmsDawfqrIQ
+zNorAAVsdJ+etdjpUS>&ryk0@&FAkgB{FKt1RJ$Tppi+=w#r#0x12ZEd;|B&9QN#=s
+F0|28>8&LoN
+
+literal 0
+HcmV?d00001
+
+diff --git a/app/interfaces/__pycache__/schemas.cpython-311.pyc b/app/interfaces/__pycache__/schemas.cpython-311.pyc
+new file mode 100644
+index 0000000000000000000000000000000000000000..c7e7040191d9b0899eacdd41791aa1cd1226692f
+GIT binary patch
+literal 2615
+zcma)7&2Jk;6rcU{dTqx|8mCTEN>Ek61-U_-ib@ZBHd5oHgj|-xvUsMA(e66Tu7OlN
+zY)}t9a0pVQ_Sgd|ty(Ue_%j?S2Ww7|IQ8ZzIrYSQvyMM-3XErd^Y*<N@63De_x86!
+z!6wjtFI{Y$(+T+tAC8;R6Au3X;Q^t9Dn1DmM^R8#eKpV=Ezli3FdRebG~Wy|PA0G%
+zOFrv<Hn1IAAu9QtP~#q<Cet2kggk?hHYX=-8L(Mnw!E}u!Df%y3euJXTYk(oK?|#-
+zGVuamQBj1xwzl|5MHAVNyofC|Df5N(Y2Y>d)tC$8vj+2NMHS{M<KHtb^69)9dvPn0
+zyCcTyz2nLW93|V~HJBa{MjV9_M_nUKV>(r?f>tHWpeog#>yK5qE{wD}Cd<GY1J_U!
+z4w(`58vOsqoOv-52E$`jUszy<SKC1&bbS`yj@LzgW4#$NH*5vpFkY)z!gAfv3z+K)
+z+jWB`ZTTqYUH7||=cg8qArwW|^}?_T_h~f4$aT31T3$qx7RCH2IRufsob@&~E;quM
+z@mpS<MVF)cI-Dk|Zfx=#Za~Pwh&}*FhJKyg>0~)s-dgUIUwddgtUvME<%Qky!d`hH
+zxv_nrtuH{|l?Vc#IsUT|pZ1fj2IiA}$_((Fik@R8NSc%~RA&}7D7mFm^Pc_~tj}Pi
+z&B@XX_!xYJKK_DvRHzNg^I%QyueU%iOwQsK59|FXfgR6-NqUHHc>wXeOYSP)f}A#x
+zl_9ym^SLsb-tcy{_Eh6%Ve#O-{5(8D%4u~!;&UKJ_y_az{0vMYcZ)XzmxXa7-n=t?
+zeDdm$_B3vp2S~_%aq51wO?PfT`tn!jPr7$)xm{e@Ew1bpSK8K!bat&`^HZ>xPa;eq
+z;LSMxi_8!{4U)*!eJ_dv7Oyuc$3XLWgc5>`86J+$9>W9((K^6LDp>jCdUAd1`XDE!
+zN^Kqcu3p+VPIXnqxT!phy9DPab~+E^fkw>9dtapshYjf=@cko+gIB?JSOxgc#K9Dj
+zi9>Y=jd4u&9{n<y4sL@AeZ%)cVfoFvBu%YizS@K6ynlM>0_qUTFrs$=M!Zy*OqP<R
+zt)-4#NEVaDt;NnnPlNjOqPV*bqu=@r;h=iOMX~;*4C!A~vPSQ-MphoEP3D~p@JOeb
+z9*ZnsQC70ZK7mD8sdB<zl@$_sBokU#%^yPPFn$rv#NPxEW+V$|P2|{*P)kD3M~9l=
+zSSYUi94r~(8CE(C#^Kih|DR{TKinl7$oi0c>?Z<Tgi7}etDS5q7tNH56;KUM%`f32
+z#))GZRaE{u%I^XUQ&TeH&dk6K!=%L9_iCdgWv5vBd9zcR+i^RSXLjaN>GbT*hn@2I
+zz4E1QA#=(;AOJ@QU6RS#GV=e%R+($)GX4evgz#jRzKsS1EHu$i03-R=XX(ULQcG%E
+zwedvk<jZXx`>tN@OipjdznpFBbI^D7Imu(oupiBI2~1CJ$Y}t53WIT=P170=RjU+*
+z-fBT5#uy4~W0QJN?dlxEm{ueVnkd5;sY;vhNerv-fn$DD?WK{tIQl`%jITiwrv(f@
+zS!u<(fRgmeXgzyrT}?lo*ZBLe1Z#RU3)s~ZMd^@Id$jM9%k5Y9eR8FJQtyzr+M~T|
+zs>*v^G7j6b2dF(7nCy&lQ-SO_5$|t827v`qXkee#l&LNmhwUo|s685(@{<Y#XdLhq
+LpglUlB%}B@Dc&~|
+
+literal 0
+HcmV?d00001
+
+diff --git a/app/interfaces/schemas.py b/app/interfaces/schemas.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..537dd30b5d2431940af9189e100fdeb758acfaf4
+--- /dev/null
++++ b/app/interfaces/schemas.py
+@@ -0,0 +1,47 @@
++from uuid import UUID
++
++from pydantic import BaseModel, EmailStr, Field
++
++from app.domain.models.server import Server, ServerStatus
++from app.domain.models.user import User
++
++
++class UserCreate(BaseModel):
++    email: EmailStr
++    phone_number: str = Field(..., min_length=8)
++
++
++class UserRead(BaseModel):
++    id: UUID
++    email: EmailStr
++    phone_number: str
++
++    @classmethod
++    def from_entity(cls, user: User) -> "UserRead":
++        return cls(id=user.id, email=user.email, phone_number=user.phone_number)
++
++
++class ServerCreate(BaseModel):
++    user_id: UUID
++    plan: str
++    location: str
++
++
++class ServerRead(BaseModel):
++    id: UUID
++    owner_id: UUID
++    plan: str
++    location: str
++    status: ServerStatus
++    external_id: str | None
++
++    @classmethod
++    def from_entity(cls, server: Server) -> "ServerRead":
++        return cls(
++            id=server.id,
++            owner_id=server.owner_id,
++            plan=server.plan,
++            location=server.location,
++            status=server.status,
++            external_id=server.external_id,
++        )
+diff --git a/app/main.py b/app/main.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..0a11b92c535df2cfe2084d76273fc70f603e8ee9
+--- /dev/null
++++ b/app/main.py
+@@ -0,0 +1,14 @@
++from fastapi import FastAPI
++
++from app.api.routes import servers, users
++from app.infrastructure.config.settings import settings
++
++app = FastAPI(title=settings.app_name, version="0.1.0")
++
++app.include_router(users.router)
++app.include_router(servers.router)
++
++
++@app.get("/healthz")
++def healthcheck():
++    return {"status": "ok", "environment": settings.environment}
+diff --git a/main.py b/main.py
+index 3c85ea1a84d7c4859853f69e70848fb798a7f314..4535d673290820143e6c4e1305d642f896f201eb 100644
+--- a/main.py
++++ b/main.py
+@@ -1 +1,3 @@
+-print("Hello, World")
+\ No newline at end of file
++from app.main import app
++
++__all__ = ["app"]
+diff --git a/requirements.txt b/requirements.txt
+new file mode 100644
+index 0000000000000000000000000000000000000000..b0ab436b5c5e1c06790ae89a95a4d4b526483fdc
+--- /dev/null
++++ b/requirements.txt
+@@ -0,0 +1,3 @@
++fastapi>=0.104.0
++uvicorn>=0.23.0
++pydantic>=1.10.0
+ 
+EOF
+)
