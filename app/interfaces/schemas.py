@@ -1,3 +1,4 @@
+from typing import Optional
 from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, Field
@@ -36,6 +37,7 @@ class ServerCreate(BaseModel):
     user_id: UUID
     plan: str
     location: str
+    expire_in: Optional[int]
 
 
 class ServerRead(BaseModel):
@@ -49,10 +51,14 @@ class ServerRead(BaseModel):
     memory_mb: int | None
     disk_gb: int | None
     status: ServerStatus
+    expire_in: int | None
+    expire_at: str | None
     external_id: str | None
 
     @classmethod
     def from_entity(cls, server: Server) -> "ServerRead":
+        import datetime
+        print(server.created_at)
         return cls(
             id=server.id,
             owner_id=server.owner_id,
@@ -64,6 +70,8 @@ class ServerRead(BaseModel):
             memory_mb=server.memory_mb,
             disk_gb=server.disk_gb,
             status=server.status,
+            expire_in=server.expire_in,
+            expire_at=str(server.created_at+datetime.timedelta(days=server.expire_in)),
             external_id=server.external_id,
         )
 

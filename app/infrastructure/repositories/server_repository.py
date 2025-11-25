@@ -16,8 +16,8 @@ class ServerRepository:
     def add(self, server: Server) -> None:
         self.db.execute(
             """
-            INSERT INTO servers (id, owner_id, plan, location, proxmox_host_id, proxmox_node, vcpu, memory_mb, disk_gb, status, created_at, external_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO servers (id, owner_id, plan, location, proxmox_host_id, proxmox_node, vcpu, memory_mb, disk_gb, status, created_at, expire_in, external_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 owner_id=excluded.owner_id,
                 plan=excluded.plan,
@@ -28,6 +28,7 @@ class ServerRepository:
                 memory_mb=excluded.memory_mb,
                 disk_gb=excluded.disk_gb,
                 status=excluded.status,
+                expire_in=excluded.expire_in,
                 external_id=excluded.external_id
             """,
             (
@@ -42,6 +43,7 @@ class ServerRepository:
                 server.disk_gb,
                 server.status.value,
                 server.created_at.isoformat(),
+                server.expire_in,
                 server.external_id,
             ),
         )
@@ -71,5 +73,6 @@ class ServerRepository:
             disk_gb=row["disk_gb"],
             status=ServerStatus(row["status"]),
             created_at=datetime.fromisoformat(row["created_at"]),
+            expire_in=row["expire_in"],
             external_id=row["external_id"],
         )

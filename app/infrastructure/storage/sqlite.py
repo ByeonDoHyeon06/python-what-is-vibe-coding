@@ -71,6 +71,7 @@ class SQLiteDataStore:
                 disk_gb INTEGER,
                 status TEXT NOT NULL,
                 created_at TEXT NOT NULL,
+                expire_in INTEGER NOT NULL,
                 external_id TEXT
             )
             """

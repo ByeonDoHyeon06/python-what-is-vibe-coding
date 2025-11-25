@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     solapi_api_secret: str = Field("", env="SOLAPI_SECRET")
     solapi_from_number: str = Field("", env="SOLAPI_FROM")
 
+    # Persistence
+    database_path: str = Field("data/vibecoding.db", env="DATABASE_PATH")
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

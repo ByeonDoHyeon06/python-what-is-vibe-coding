@@ -44,20 +44,38 @@ class ProxmoxClient:
         vm_name = f"vm-{server.id}"
         vmid = self._generate_vmid(server)
 
+        disk_volume = self._disk_volume(plan)
+
         if plan.template_vmid:
+            config_data = {
+                "cores": plan.vcpu,
+                "memory": plan.memory_mb,
+                "name": vm_name,
+            }
+            clone_data = {
+                "newid": vmid,
+                "name": vm_name,
+                "target": node,
+            }
+            # clone_data["full"] = 0
+            if plan.disk_storage:
+                clone_data["full"] = 1
+                clone_data["storage"] = plan.disk_storage
+            else:
+                clone_data["full"] = 0
             response = self.http.post(
                 f"{base_url}/api2/json/nodes/{node}/qemu/{plan.template_vmid}/clone",
-                data={
-                    "newid": vmid,
-                    "name": vm_name,
-                    "target": node,
-                    "full": 1,
-                    "storage": plan.disk_storage or "local-lvm",
-                },
+                data=clone_data,
                 headers=self._headers(ticket, csrf),
             )
             response.raise_for_status()
         else:
+            config_data = {
+                "cores": plan.vcpu,
+                "memory": plan.memory_mb,
+                "name": vm_name,
+                "virtio0": disk_volume,
+            }
             payload = {
                 "vmid": vmid,
                 "name": vm_name,
@@ -65,7 +83,7 @@ class ProxmoxClient:
                 "memory": plan.memory_mb,
                 "sockets": 1,
                 "ostype": "l26",
-                "virtio0": f"{plan.disk_storage or 'local-lvm'}:{plan.disk_gb}G",
+                "virtio0": disk_volume,
             }
 
             response = self.http.post(
@@ -78,12 +96,7 @@ class ProxmoxClient:
         # ensure resources match plan for cloned templates
         self.http.put(
             f"{base_url}/api2/json/nodes/{node}/qemu/{vmid}/config",
-            data={
-                "cores": plan.vcpu,
-                "memory": plan.memory_mb,
-                "name": vm_name,
-                "virtio0": f"{plan.disk_storage or 'local-lvm'}:{plan.disk_gb}G",
-            },
+            data=config_data,
             headers=self._headers(ticket, csrf),
         ).raise_for_status()
 
@@ -106,3 +119,10 @@ class ProxmoxClient:
     @staticmethod
     def _generate_vmid(server: Server) -> int:
         return abs(server.id.int % 2_000_000_000) or 1000
+
+    @staticmethod
+    def _disk_volume(plan: PlanSpec) -> str:
+        """Create a disk volume string Proxmox expects (without size suffixes)."""
+
+        storage = plan.disk_storage or "local-lvm"
+        return f"{storage}:{int(plan.disk_gb)}"

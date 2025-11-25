@@ -1,5 +1,5 @@
 from uuid import UUID
-
+import datetime
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.dependencies import (
@@ -22,7 +22,9 @@ def provision_server(
     provision = Depends(get_server_provisioning),
 ):
     try:
-        server = provision.execute(user_id=payload.user_id, plan=payload.plan, location=payload.location)
+        # expire_in = datetime.timedelta(days=payload.expire_in)
+        # expire_at = datetime.datetime.utcnow() + expire_in
+        server = provision.execute(user_id=payload.user_id, plan=payload.plan, location=payload.location,expire_in=payload.expire_in)
         return ServerRead.from_entity(server)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
