@@ -2,6 +2,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, Field
 
+from app.domain.models.proxmox import ProxmoxHost
 from app.domain.models.server import Server, ServerStatus
 from app.domain.models.user import User
 
@@ -45,3 +46,26 @@ class ServerRead(BaseModel):
             status=server.status,
             external_id=server.external_id,
         )
+
+
+class AllowedSettings(BaseModel):
+    allowed_locations: list[str]
+    allowed_plans: list[str]
+
+
+class AllowedSettingsUpdate(BaseModel):
+    allowed_locations: list[str] | None = None
+    allowed_plans: list[str] | None = None
+
+
+class ProxmoxHostRead(BaseModel):
+    name: str
+    nodes: list[str]
+
+    @classmethod
+    def from_entity(cls, host: ProxmoxHost) -> "ProxmoxHostRead":
+        return cls(name=host.name, nodes=sorted(host.nodes))
+
+
+class ProxmoxHostUpdate(BaseModel):
+    nodes: list[str]

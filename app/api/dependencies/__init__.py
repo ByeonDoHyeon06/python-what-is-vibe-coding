@@ -6,6 +6,7 @@ from app.application.use_cases.register_user import RegisterUser
 from app.domain.services.provisioning_policy import ProvisioningPolicy
 from app.infrastructure.clients.proxmox import ProxmoxClient
 from app.infrastructure.clients.solapi import SolapiClient
+from app.infrastructure.repositories.config_repository import ProvisioningConfigRepository
 from app.infrastructure.repositories.server_repository import ServerRepository
 from app.infrastructure.repositories.user_repository import UserRepository
 
@@ -21,8 +22,13 @@ def get_server_repository() -> ServerRepository:
 
 
 @lru_cache()
+def get_config_repository() -> ProvisioningConfigRepository:
+    return ProvisioningConfigRepository()
+
+
+@lru_cache()
 def get_provisioning_policy() -> ProvisioningPolicy:
-    return ProvisioningPolicy(allowed_locations={"kr-central", "jp-east"}, allowed_plans={"basic", "pro"})
+    return ProvisioningPolicy(config_repo=get_config_repository())
 
 
 @lru_cache()
