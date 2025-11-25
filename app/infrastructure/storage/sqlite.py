@@ -1,0 +1,90 @@
+from __future__ import annotations
+
+import os
+import sqlite3
+from sqlite3 import Row
+from typing import Iterable, Optional
+
+
+class SQLiteDataStore:
+    """Lightweight SQLite helper for persisting domain entities."""
+
+    def __init__(self, path: str):
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        self.conn = sqlite3.connect(path, check_same_thread=False)
+        self.conn.row_factory = sqlite3.Row
+        self._init_schema()
+
+    def _init_schema(self) -> None:
+        cur = self.conn.cursor()
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                email TEXT NOT NULL,
+                phone_number TEXT NOT NULL,
+                external_auth_id TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS plans (
+                name TEXT PRIMARY KEY,
+                vcpu INTEGER NOT NULL,
+                memory_mb INTEGER NOT NULL,
+                disk_gb INTEGER NOT NULL,
+                location TEXT NOT NULL,
+                proxmox_host_id TEXT,
+                proxmox_node TEXT,
+                description TEXT,
+                template_vmid INTEGER,
+                disk_storage TEXT
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS proxmox_hosts (
+                id TEXT PRIMARY KEY,
+                api_url TEXT NOT NULL,
+                username TEXT NOT NULL,
+                password TEXT NOT NULL,
+                realm TEXT NOT NULL,
+                node TEXT,
+                location TEXT NOT NULL
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS servers (
+                id TEXT PRIMARY KEY,
+                owner_id TEXT NOT NULL,
+                plan TEXT NOT NULL,
+                location TEXT NOT NULL,
+                proxmox_host_id TEXT,
+                proxmox_node TEXT,
+                vcpu INTEGER,
+                memory_mb INTEGER,
+                disk_gb INTEGER,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                external_id TEXT
+            )
+            """
+        )
+        self.conn.commit()
+
+    def execute(self, query: str, params: Iterable | tuple = ()) -> None:
+        self.conn.execute(query, params)
+        self.conn.commit()
+
+    def fetch_one(self, query: str, params: Iterable | tuple = ()) -> Optional[Row]:
+        cur = self.conn.execute(query, params)
+        return cur.fetchone()
+
+    def fetch_all(self, query: str, params: Iterable | tuple = ()) -> list[Row]:
+        cur = self.conn.execute(query, params)
+        return cur.fetchall()

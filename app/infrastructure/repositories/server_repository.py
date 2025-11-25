@@ -1,24 +1,75 @@
 from collections.abc import Iterable
-from typing import Dict, Optional
+from datetime import datetime
+from typing import Optional
 from uuid import UUID
 
-from app.domain.models.server import Server
+from app.domain.models.server import Server, ServerStatus
+from app.infrastructure.storage.sqlite import SQLiteDataStore
 
 
 class ServerRepository:
-    """Simple in-memory persistence for server entities."""
+    """SQLite persistence for server entities."""
 
-    def __init__(self):
-        self._servers: Dict[UUID, Server] = {}
+    def __init__(self, db: SQLiteDataStore):
+        self.db = db
 
     def add(self, server: Server) -> None:
-        self._servers[server.id] = server
+        self.db.execute(
+            """
+            INSERT INTO servers (id, owner_id, plan, location, proxmox_host_id, proxmox_node, vcpu, memory_mb, disk_gb, status, created_at, external_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                owner_id=excluded.owner_id,
+                plan=excluded.plan,
+                location=excluded.location,
+                proxmox_host_id=excluded.proxmox_host_id,
+                proxmox_node=excluded.proxmox_node,
+                vcpu=excluded.vcpu,
+                memory_mb=excluded.memory_mb,
+                disk_gb=excluded.disk_gb,
+                status=excluded.status,
+                external_id=excluded.external_id
+            """,
+            (
+                str(server.id),
+                str(server.owner_id),
+                server.plan,
+                server.location,
+                server.proxmox_host_id,
+                server.proxmox_node,
+                server.vcpu,
+                server.memory_mb,
+                server.disk_gb,
+                server.status.value,
+                server.created_at.isoformat(),
+                server.external_id,
+            ),
+        )
 
     def update(self, server: Server) -> None:
-        self._servers[server.id] = server
+        self.add(server)
 
     def get(self, server_id: UUID) -> Optional[Server]:
-        return self._servers.get(server_id)
+        row = self.db.fetch_one("SELECT * FROM servers WHERE id = ?", (str(server_id),))
+        return self._row_to_server(row) if row else None
 
     def list_for_user(self, user_id: UUID) -> Iterable[Server]:
-        return [srv for srv in self._servers.values() if srv.owner_id == user_id]
+        rows = self.db.fetch_all("SELECT * FROM servers WHERE owner_id = ?", (str(user_id),))
+        return [self._row_to_server(row) for row in rows]
+
+    @staticmethod
+    def _row_to_server(row) -> Server:
+        return Server(
+            id=UUID(row["id"]),
+            owner_id=UUID(row["owner_id"]),
+            plan=row["plan"],
+            location=row["location"],
+            proxmox_host_id=row["proxmox_host_id"],
+            proxmox_node=row["proxmox_node"],
+            vcpu=row["vcpu"],
+            memory_mb=row["memory_mb"],
+            disk_gb=row["disk_gb"],
+            status=ServerStatus(row["status"]),
+            created_at=datetime.fromisoformat(row["created_at"]),
+            external_id=row["external_id"],
+        )

@@ -51,6 +51,8 @@ def get_allowed_plans_and_locations(
                 "disk_gb": plan.disk_gb,
                 "proxmox_host_id": plan.proxmox_host_id,
                 "proxmox_node": plan.proxmox_node,
+                "template_vmid": plan.template_vmid,
+                "disk_storage": plan.disk_storage,
                 "description": plan.description,
             }
             for plan in plans.list()

@@ -12,7 +12,7 @@
 3. Visit the docs at [`/docs`](http://localhost:8000/docs) for interactive testing.
 
 ## Available endpoints (happy-path flow)
-- `POST /admin/plans` – admin creates/updates plan presets (vcpu, memory, disk, location, proxmox host/node mapping).
+- `POST /admin/plans` – admin creates/updates plan presets (vcpu, memory, disk, location, proxmox host/node mapping, optional template clone info).
 - `GET /admin/plans` – list all configured plans.
 - `POST /admin/proxmox/hosts` – admin registers a Proxmox API endpoint (api_url, username/password/realm, node, location tag).
 - `GET /admin/proxmox/hosts` – list configured Proxmox endpoints.
@@ -32,7 +32,7 @@
 - `GET /healthz` – simple health check.
 
 ## How the Proxmox & SOLAPI adapters work
-- `app/infrastructure/clients/proxmox.py` – logs in with username/password (realm defaults to `pam`) to fetch a ticket/CSRF token, then hits the Proxmox API to create VMs on the configured node. The host/node credentials come from the admin-managed catalog (or the fallback `PROXMOX_*` env values if provided).
+- `app/infrastructure/clients/proxmox.py` – logs in with username/password (realm defaults to `pam`) to fetch a ticket/CSRF token, then hits the Proxmox API to create VMs on the configured node. It supports cloning from a template VMID defined on the plan (with optional storage target) or creating a fresh VM. The host/node credentials come from the admin-managed catalog (or the fallback `PROXMOX_*` env values if provided).
 - `app/infrastructure/clients/solapi.py` – place to call the official SOLAPI SDK. It reads `SOLAPI_KEY`, `SOLAPI_SECRET`, and `SOLAPI_FROM`. Implement SMS sending in `send_provisioning_sms`.
 
 Both clients are injected into the saga orchestrator (`app/application/services/server_orchestrator.py`), which sets the server status, calls Proxmox, and sends an SMS. If an exception occurs, the orchestrator rolls back by calling `destroy_server` and marking the server as `ROLLED_BACK`.
@@ -44,6 +44,7 @@ Both clients are injected into the saga orchestrator (`app/application/services/
   - `PROXMOX_USERNAME`
   - `PROXMOX_PASSWORD`
   - `PROXMOX_REALM` (defaults to `pam`)
+- Persistence: set `DATABASE_PATH` to control where the SQLite file is written (defaults to `data/vibecoding.db`).
 - Provisioning policy uses the admin-managed plan catalog and Proxmox host catalog; the metadata endpoint exposes what is currently configured.
 
 ## Example cURL
@@ -173,5 +174,5 @@ curl -s http://localhost:8000/healthz
 ```
 
 ## Notes
-- Persistence is in-memory only; swap `UserRepository`/`ServerRepository` with real adapters to persist data.
+- Persistence now uses SQLite via lightweight repositories; set `DATABASE_PATH` to move the DB file.
 - Validation/rollback is handled in the `ProvisionServer` use case and the `ServerProvisionOrchestrator`.

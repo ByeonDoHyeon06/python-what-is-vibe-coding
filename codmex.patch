@@ -1,10 +1,22 @@
  (cd "$(git rev-parse --show-toplevel)" && git apply --3way <<'EOF'
+diff --git a/.gitignore b/.gitignore
+new file mode 100644
+index 0000000000000000000000000000000000000000..25ff10abe221d26a0547e83cc5a29e4b5f2b2117
+--- /dev/null
++++ b/.gitignore
+@@ -0,0 +1,6 @@
++__pycache__/
++*.pyc
++*.pyo
++*.pyd
++*.db
++data/
 diff --git a/README.md b/README.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..eccc604481df6b657d7786ea06f2074bfd86a101
+index 0000000000000000000000000000000000000000..a09fd861a95e3ce086ee201009af9188a54d45ce
 --- /dev/null
 +++ b/README.md
-@@ -0,0 +1,177 @@
+@@ -0,0 +1,178 @@
 +# VibeCoding Hosting Backend (FastAPI)
 +
 +## Getting started
@@ -19,7 +31,7 @@ index 0000000000000000000000000000000000000000..eccc604481df6b657d7786ea06f2074b
 +3. Visit the docs at [`/docs`](http://localhost:8000/docs) for interactive testing.
 +
 +## Available endpoints (happy-path flow)
-+- `POST /admin/plans` – admin creates/updates plan presets (vcpu, memory, disk, location, proxmox host/node mapping).
++- `POST /admin/plans` – admin creates/updates plan presets (vcpu, memory, disk, location, proxmox host/node mapping, optional template clone info).
 +- `GET /admin/plans` – list all configured plans.
 +- `POST /admin/proxmox/hosts` – admin registers a Proxmox API endpoint (api_url, username/password/realm, node, location tag).
 +- `GET /admin/proxmox/hosts` – list configured Proxmox endpoints.
@@ -39,7 +51,7 @@ index 0000000000000000000000000000000000000000..eccc604481df6b657d7786ea06f2074b
 +- `GET /healthz` – simple health check.
 +
 +## How the Proxmox & SOLAPI adapters work
-+- `app/infrastructure/clients/proxmox.py` – logs in with username/password (realm defaults to `pam`) to fetch a ticket/CSRF token, then hits the Proxmox API to create VMs on the configured node. The host/node credentials come from the admin-managed catalog (or the fallback `PROXMOX_*` env values if provided).
++- `app/infrastructure/clients/proxmox.py` – logs in with username/password (realm defaults to `pam`) to fetch a ticket/CSRF token, then hits the Proxmox API to create VMs on the configured node. It supports cloning from a template VMID defined on the plan (with optional storage target) or creating a fresh VM. The host/node credentials come from the admin-managed catalog (or the fallback `PROXMOX_*` env values if provided).
 +- `app/infrastructure/clients/solapi.py` – place to call the official SOLAPI SDK. It reads `SOLAPI_KEY`, `SOLAPI_SECRET`, and `SOLAPI_FROM`. Implement SMS sending in `send_provisioning_sms`.
 +
 +Both clients are injected into the saga orchestrator (`app/application/services/server_orchestrator.py`), which sets the server status, calls Proxmox, and sends an SMS. If an exception occurs, the orchestrator rolls back by calling `destroy_server` and marking the server as `ROLLED_BACK`.
@@ -51,6 +63,7 @@ index 0000000000000000000000000000000000000000..eccc604481df6b657d7786ea06f2074b
 +  - `PROXMOX_USERNAME`
 +  - `PROXMOX_PASSWORD`
 +  - `PROXMOX_REALM` (defaults to `pam`)
++- Persistence: set `DATABASE_PATH` to control where the SQLite file is written (defaults to `data/vibecoding.db`).
 +- Provisioning policy uses the admin-managed plan catalog and Proxmox host catalog; the metadata endpoint exposes what is currently configured.
 +
 +## Example cURL
@@ -180,62 +193,20 @@ index 0000000000000000000000000000000000000000..eccc604481df6b657d7786ea06f2074b
 +```
 +
 +## Notes
-+- Persistence is in-memory only; swap `UserRepository`/`ServerRepository` with real adapters to persist data.
++- Persistence now uses SQLite via lightweight repositories; set `DATABASE_PATH` to move the DB file.
 +- Validation/rollback is handled in the `ProvisionServer` use case and the `ServerProvisionOrchestrator`.
 diff --git a/app/__init__.py b/app/__init__.py
 new file mode 100644
 index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
-diff --git a/app/__pycache__/__init__.cpython-311.pyc b/app/__pycache__/__init__.cpython-311.pyc
-new file mode 100644
-index 0000000000000000000000000000000000000000..552dc09e8d87a1ff1156a5fc665bf181946f5ea0
-GIT binary patch
-literal 124
-zcmZ3^%ge<81V=<wGePuY5CH>>P{wCAAY(d13PUi1CZpd<h9V{)|1(JP7k^?wfqr~^
-uW?p7Ve7s&k<u4AK-29Z%oK(9aR-in{gkpXm@qw9<k?{iqj3{CTiU9y62Nv@H
-
-literal 0
-HcmV?d00001
-
-diff --git a/app/__pycache__/main.cpython-311.pyc b/app/__pycache__/main.cpython-311.pyc
-new file mode 100644
-index 0000000000000000000000000000000000000000..be40c1cd3ceaa7153463eebdede24b632b6e0405
-GIT binary patch
-literal 906
-zcmaJ<&1(}u6o0c{*_x(GO)b_-2=owyZ9Pall-gcIFGcW{OIfm$WYhf!v$GX*3L@yS
-zhk_Rmo}v={3;YK>Ze+nQr+_DKk${Jue3LI4Q6F#K_x$EJ!@SGot^mrHjcvC<0KUs)
-zF4`;@|H9xkIN%Tud{QAq#)_x-YDM+6iZ;nrPxp<AK|ldYsL{;KVI1wF-c<m4xTaDu
-zsrhzgo?Z4-YfkvcS{M2Ba7~54KliBr-IJXoT=tH!jP7J!Ko<vki=oP@V?Ke>$`4s7
-z5s`UdNBr>dqmm*r5oM>8MM94;im+)$lyf(zM{RxAx?}C)kj`E1QIU~@ZWy%9od&f%
-z-e^}BM_{1N*0_KHJ~83w=h9qU-cjBtNJc#pN_c|cM#OC%M<PpuQ<sH-PXk_3n1MUl
-zDw+>4mLL~dyVct9Z8xx5&qQ`gpxU6-6Lt;Tax%J(rUSzpTc7Twx9=y}1F6~pTf_QM
-zDJL>DytmzQnWQS#5YWQRVqwf_#N-!Yy6hBX#|>%>$5~wEF{4&B3~FxOnm^8jpD=Oo
-zIIw*xRE)%$8&tj6p~n+MCXAU^>y%GevYb3a(qUK8T$p=)=)@k~XE!mGPZWJdGg1j5
-z1Gtqe>kvxG-*f=wWLbwsu2VmInC7?NKTV8s-zcX>xuXt2{RZn_Vg2mx`CcCiDHIYY
-x3>MY$`F<aYDHIbZjto%rmz&QwUv2eCJ|+2)LdYQ*fwVtWP&WRkO*@mz{RWU>&Lsc<
-
-literal 0
-HcmV?d00001
-
 diff --git a/app/api/__init__.py b/app/api/__init__.py
 new file mode 100644
 index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
-diff --git a/app/api/__pycache__/__init__.cpython-311.pyc b/app/api/__pycache__/__init__.cpython-311.pyc
-new file mode 100644
-index 0000000000000000000000000000000000000000..40161e3bb2783313a086748deb63e40023501015
-GIT binary patch
-literal 128
-zcmZ3^%ge<81V=<wGePuY5CH>>P{wCAAY(d13PUi1CZpd<h9V{)|1(JPmvCZ1fqr5^
-yrha^UW?p7Ve7s&k<u4AK-29Z%oK(9aR-hV?DaHIi;sY}yBjX1K7*WIw6axUD=NMoB
-
-literal 0
-HcmV?d00001
-
 diff --git a/app/api/dependencies/__init__.py b/app/api/dependencies/__init__.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..a73dfc395ad13d41116f7f6faacfdba019e14613
+index 0000000000000000000000000000000000000000..68ae89816afc47333472a07d4d0bc7fd1f79ba75
 --- /dev/null
 +++ b/app/api/dependencies/__init__.py
-@@ -0,0 +1,112 @@
+@@ -0,0 +1,120 @@
 +from functools import lru_cache
 +
 +from app.application.services.server_orchestrator import ServerProvisionOrchestrator
@@ -251,21 +222,27 @@ index 0000000000000000000000000000000000000000..a73dfc395ad13d41116f7f6faacfdba0
 +from app.infrastructure.repositories.proxmox_host_repository import ProxmoxHostRepository
 +from app.infrastructure.repositories.server_repository import ServerRepository
 +from app.infrastructure.repositories.user_repository import UserRepository
++from app.infrastructure.storage.sqlite import SQLiteDataStore
++
++
++@lru_cache()
++def get_datastore() -> SQLiteDataStore:
++    return SQLiteDataStore(settings.database_path)
 +
 +
 +@lru_cache()
 +def get_user_repository() -> UserRepository:
-+    return UserRepository()
++    return UserRepository(get_datastore())
 +
 +
 +@lru_cache()
 +def get_server_repository() -> ServerRepository:
-+    return ServerRepository()
++    return ServerRepository(get_datastore())
 +
 +
 +@lru_cache()
 +def get_plan_repository() -> PlanRepository:
-+    repo = PlanRepository()
++    repo = PlanRepository(get_datastore())
 +    if not repo.get("basic"):
 +        repo.add(
 +            PlanSpec(
@@ -275,6 +252,7 @@ index 0000000000000000000000000000000000000000..a73dfc395ad13d41116f7f6faacfdba0
 +                disk_gb=20,
 +                location="kr-central",
 +                description="Default starter plan",
++                disk_storage="local-lvm",
 +            )
 +        )
 +    if not repo.get("pro"):
@@ -286,6 +264,7 @@ index 0000000000000000000000000000000000000000..a73dfc395ad13d41116f7f6faacfdba0
 +                disk_gb=80,
 +                location="kr-central",
 +                description="Larger VM for heavier workloads",
++                disk_storage="local-lvm",
 +            )
 +        )
 +    return repo
@@ -293,7 +272,7 @@ index 0000000000000000000000000000000000000000..a73dfc395ad13d41116f7f6faacfdba0
 +
 +@lru_cache()
 +def get_proxmox_host_repository() -> ProxmoxHostRepository:
-+    repo = ProxmoxHostRepository()
++    repo = ProxmoxHostRepository(get_datastore())
 +    if settings.proxmox_password:
 +        repo.add(
 +            ProxmoxHostConfig(
@@ -348,112 +327,6 @@ index 0000000000000000000000000000000000000000..a73dfc395ad13d41116f7f6faacfdba0
 +        policy=get_provisioning_policy(),
 +        orchestrator=get_server_orchestrator(),
 +    )
-diff --git a/app/api/dependencies/__pycache__/__init__.cpython-311.pyc b/app/api/dependencies/__pycache__/__init__.cpython-311.pyc
-new file mode 100644
-index 0000000000000000000000000000000000000000..76727765002906955a05ac29fb15f375de597121
-GIT binary patch
-literal 3390
-zcmb_e&uimG6duX49Y=PYIB~qO^P_3V4>wt7OH0{=G+QVXT4=g#+CzP)aU~^DB3ou8
-zZ#PR1Ti8Pv_P#mxloGOsLNEO@<l;gQ1QtpUg&w?QPkZWnBU_d%wQQFTqo=2tZ^qxe
-z`R0v(Or?eil%KPU>R&NJe#ehqiFBQ-UpYda5ShrFMrvG{<Iv|dz7{D*m><!ETC^Nx
-zzM#cw@p7E`QEjM}C?}X7(}rteS!8}(OV(256!V9)ky^T(W`05&t&Nq(IKmT!JB6P=
-z?{OjWurjvC%i=@9-(JpyV$*<42C(Cy*aTox0qjI5Rs`%w0GkcPrU07`U?)Sd5x|ZH
-zu(?od9I#^n?6pvA6tI~9c1j-KCB=z9F}g+0PH41Qk*d;x0w0B4h2B-@ZK~f@4OOpy
-zMxos>Y1Pyzbf?`82M0~bJIcOlm<s*EQ0N(FXIzL{-@mPEs&ovkDQLY{)9-z#sY>01
-zhUBiURU4}NJ?cz&M``GW3O|N}MsUi0iyfni*`#&Jl?6CFJSf$xSujtC31aOPzf^X~
-z8Mi~z(0N9#5c2YkYNN3Z9M)x}q10uiE~$#KUa6>c)vQ!XjbnR!Uok69AW@+%FPej~
-zDR_(#Fb~Kd;#5m4w8erY6lfNjUY8ynhrtwQrW0szE;<Ru&LRz90UP5bG6j7Zcw8cd
-zmN?TEXDneRNF)kC7N<3E{Be>wnLps=h%6lNPot+0(Q}L{D<G8E&i&yddR>BjqgCyG
-z{IGFdsT!so{km$Xk{xMKy~x{RRZY{sQRIrIOH~t;W7w%)Q$wrP4H}0D2UnKEmB9p#
-z*g!Cq22%{3126{Km<NMFp809|mt*V3$5y#&Ne9-KswEz_#KX3DXbFeG<^Bg*IB`#e
-zu*-DWp>Qh_Q!Yh5(?~4YC3fx6t;e@4A^$&c5JNbOvAt(!rAJ`_U`WHIkbAWKc-s=D
-zf)pUBJG)*7$G__)s-au_C&fgqg!kYchW0$=PGP=tcTUg^zf+9ZqDQv&2<)^cmUhbU
-zuB#|e0p_MCYZhjT3k_9FcT(MxoahRGm*6qp1%rxNx|}GsCRW=MtCzWAE4SLttzJ$p
-zw<e42$zmriBxBDBm=|a|M2N<M(L*}8qN`0XuNpmw1mvJ|c%0%yg0qMFDWu3#+!&Tg
-z2G_^VdN<`@UWLpHhl#ENejOeo4+dA4`)%R9*22y9!c9xuXo(wbal;Zef@{DXV{7;x
-zoL61L>nOm)6Vxq!JwZeulIIvrR-A|kbP>MngqvRNm~-~+q<3G7QHpYORDl_Rr3SX!
-zgP~)|q$>??PN6qo7^=c}9}EUB-<L*av6WeFXO=J1ORe-uJH2w5U2A1a?QE%&h@wWo
-zyg<_-(XK{zig`P+*Q`sXu4@Lx=-O*=mz3av>yB+$33;fJVlW5tws%cT=k{BJLm(1x
-z4;wJXW#7&EEClxQKM$bYJD6QoOk56H)@xO@-Y4Tu>`Apl$p1~8TdnU=$n3N!!8NOt
-zoQ%iV;HjnfU(ufb7oc;TDP~6d?GT)M0^pwQ#l>wqrg)#)a3KeXxELJg>c#n+Ku2Me
-zbCOu%z>C9^JuoY<!^1={pqQ6KTQyy7YRWdn6OKpLn1`FA6X7`Sg3MX|`iy*T`RfJw
-z$nw_<@`2^AVVEt8`054OwEXpg>{$MKK|ZnkwG$(}_+aY0!oxy`=eX&UuQ~)?ee*m*
-z_*A#EGvou$T660Nob4MAdUgPP#98z2Ao7UwTF(gR@c%&J<Wqze`o@DU41n_|TZqf|
-zjR&0ffumf^ng=wz`^H6M>!@#`n<wAmtebt~g0a<0I>yC*nClRD^^FVmwX!t(H$KY_
-AG5`Po
-
-literal 0
-HcmV?d00001
-
-diff --git a/app/api/routes/__pycache__/servers.cpython-311.pyc b/app/api/routes/__pycache__/servers.cpython-311.pyc
-new file mode 100644
-index 0000000000000000000000000000000000000000..0f6c625c03ac6e0291bbe10994d21cbf9e643afd
-GIT binary patch
-literal 2769
-zcmaJ@-ER{|5a0Xow|$92K1k9J6G&7i!~wNU#79D1APGFAi13lRRF>siheNi{+B-uM
-zoXU!jimFznQdM|so>HUap_N*Rmr5Y@4>+Tfuuesa)Th3=$_wJDvupce6JWJBH#<8s
-zyEpTjv405!ya>kQu0iFz1EGKDqA{FxX6Gjkq5DWiGM7dfF2-?`=hJ*fhzS`nCT1Kl
-z2a^eDXT}wCW!y10TZ?H=#vAi8-jViY{4swf5DRdKM_7=ZvTKpsa&PbmZNgI<F$qiS
-zZH-m)TlV0<mbX<K{D|1K0r%U4r#4cY?8E*PFZ=H}HbAu5*g&y%@Ex?5O^h7C9XQZy
-zOI~}9d(Sx%=Hxc)O^I^*p0oD7@vPt*zGJWd4%`2}J^nl8&UqB>`j_50%vs{)%jeF7
-z1<Mn?aPFd-*D<kNXK)T@Wz7oAUb=MQ>{1fvbVbdEd8=m;>v0W}o0!CNM7^nKAXl=B
-zR#(#o!8uh^bd@ZF`}TRJeQ{UDTmG8tG{FfSTi%97LSAu?)tqaVtIoio&K$uhWyuot
-z#G+==J4*y>IW?={ct(|R+H&O*%V{+sCv7yqx4GaE;Mw^b$bIBN1#TU<y`z9`*cbrb
-z_5nP#XJd=o0DjY6ukyO5v4_wNsDRoi@U6L?M+cGaZ|ov;2$4gpg5HEvnb(_;RS;V3
-zw}e*Q7KAlkMytYC!Y%F=S`t1-x45u42l;d5A!2bww!~aIk+s}uHJPAUQ|`gXJ>)H)
-zrYH2g7EeONET@e1gpv+>EEitFNt*S2a7ofhNf#wPAeJvh)Jz;_bwyvcyjK$GJU&Z^
-zN(ilROVD%@774w*<+0IVIcu4-1iX~gMA!_$c-foC<;D^@WsFdaX^lKba?4h`ZCi&H
-zIRI8PXxcK6BC2{t#|&2q_B{&@JPi(%CbmvJ?)mE-V<B!XTsMLP<)C5)mAlU8ZM|mO
-z;CiauHfpww8t%~-&wX80#DQ@$eJ=Hvgg;I{5`LTgeb$gB%hIGNO+Nn6a8JL0Q5C2G
-zFd7ZS+VM&Br#CtxJaN4r9TJ`lIe=ej8>7)4yIqg@DvO>aQslQ_km7|tJJUe!zXgGS
-zFG$mFFIweg{thbeXHaV=g31-<!W=s<X`>dLQv}i!?u@gO7Eu9x*}cl?O*%~|f913v
-z_-}jW(L)sGS>8z>_<+LWBS*-4z-qK4LLm}@*Guoow4&)rHItiK8Ki8S1)*N9k&_g6
-zX>AIahFU*$aS%um8NO(3mTrD`-t-TwkC*+!rhnL$?|>Su@Bs6iQVH`O7HaSufK9@H
-zL4yjgVpp<)d#*u-VShh7+F>9?v@LZ!lR{6WP^rg|LS^ZwDIG1&RM>4E^}y+6U(|$^
-z7$qNo!HR$EcI|_ppjIu9&9@|%Vw)v*1(>%b_tn%EcrB<?%leQxnSZs=*Erp7D$rnT
-z?Y#{K%3t{r(!5e{wV|x4hf-=jE0b<GAS_w}G-p<_P1zO52y7A-QI_MDh<bP1If;NC
-z(})5Cp$r7SU-)L>o>C5k%s{9(UGW8Jb<J|Du8fbS4QZw<&6v`R;hup4G<^rwhswUN
-z=?fcTn8kN4++~URydo2Ns^v;0pgH9fLL*A(XV)4`C-jU6$RjfQJ;K?ff;B?>I&o9G
-zqjX=%rU;mmd{WO79I=0VKs8d&n=M-=v}s%2H9Kf}sYH^hC9mU5LL>AaO|9`cS(hTv
-zOI2`vfXYXyrAU#+z{SEs2I&q(OszKDC*k)fpT<*U0%WxGw4Z@ON8z{%>M~mAHu~6j
-z^V~+C8LyiaG-tHV3OZrDZf<)z?)E+yE}bi#Fgz1w&xGljC_1Z7#Jj)lU+cenaot<&
-zFLNU%Hv+=o{(CNC|5&;Gh}nLm>Tq+kX;NAV^j3x4Wli{>fcV4IkY_vH)MwvXpW%PE
-zB>#Hcj7$~#%G@cFJ5`xF`)JXa{-Qi}&78VcMLhQ@_@(rLUV9rOCz{1Ip8EfU1N$n^
-zEWGst?#`8tQ`h4rH(ojR3Dj=%O8MAT^VroY61ibU9vosXV`zL=#yIM90t~BsLzRhH
-G0{;hFx08DS
-
-literal 0
-HcmV?d00001
-
-diff --git a/app/api/routes/__pycache__/users.cpython-311.pyc b/app/api/routes/__pycache__/users.cpython-311.pyc
-new file mode 100644
-index 0000000000000000000000000000000000000000..8b6cfb5893509c43d5a7520685ae1b953ce4b384
-GIT binary patch
-literal 1761
-zcmZuw&1>UE6rYhL+mh@!yZLYv)7Je+wrU!stV@?dFtl;I+b%36p%+6jsx|g%kt{Ki
-z>1N3mvn(`+_Rv#u=)s4QrX+{b%l6NZieQbP5a?-dF1hWgZ=~9>NrsuHH*e<s-stz<
-z`!%1J5R7LFE5?vR=pVKj4dH*~{7sC|0n(9<O=RIZwzxWn*`6~~7GLKrp)SPxl$o|N
-z^-QeuX4Vqxq9xTOj5tKFF6iktKFu6KoD*2dsLMp|=SI89ubw5+sW^Qba5%yr!Fx_%
-zC8LFPiHI#um!AqpU^*Ecpn4v#XU5wJ1+WW5S{hrfj3Zo%lOq|3lfM*aR-f5HO5p{=
-zQ@BX{_{-0??XE{?l&KMibaWT23vJ>xx-Ov&O4^3&QOz^#PBb@Rc5K)1Y`Ux9Xyz-p
-zxlP6vE|QpKixSNvQ8qc%^hfCp2I)pZ{DClOhmw}@FycL}?M8?}QQ|sw$0ZHR)`=Nq
-z9BtRMHN81b0z8|Cm4bC{f;d2XxDVgUV-GzT6A$_r;S^6N>M`eKF1#Nw^my!X)1(4z
-z+&y@;KrGELqnvZ!?vO^OYkfngB19STkTe;Q*T9=zXF>!K$t`MI4bt%pZ&yjt0<&ck
-zT7h&v=7RlAxm<o()Es9+bBqnjQsO3jsm^YcA34NXp|8Mw)(q}V5Ir=MP;UOYT>48c
-z^>6&L{%1R^Zu@d6kat3Pr&s%1o(tvI`+Oj;gz}2dubhJyibNI~671N`F;8G;Z;9Eh
-zf&#6CpQ1g~2mSJxF5w!Q-p71RL9;HMgLVEPhy&CH;I9`SV{an-M9T0q{XcO(6nD^X
-zkc605Iu96-4NiTZE`sW^{FckK2%neIrU_Nsv@NIl=ryLsw7Kf0X*V^~t%5Q-Utqp(
-zf#@M$t|jyMgCFmNxpIF#$gPIC)v=wjE`%!OnYV)JGV^7RPr^phMJW0PnAyL&We`1d
-z7GwYZ(X;9w)u6H!R<-~&kZU2>`C1HoPq`LlTAJ%Y0Z^6!%1SYshni5qr0Q{dl1|eg
-zE@f2GG&_fSaa5zzqTorpO|MId%90wlCtOv>X-*oJvSN=G6E7&&mezzzZu35rwM(-M
-zH?G@sT!T=d0OiFM7p0*8X_?(%e@9<sf>Dx?p526=?V6-Y6|gZ{+_ymvQyAj`TJ^7*
-zXXvhf)f}KN{OLJBxBRQ-nRtDF>F}N78^=q&SP8^RC{}vuVH$DS?@Lcg``i6&uM}V<
-z#0nT^i~HaD#rJ~3dRSN=3IbjoA`pXoahMuyV#~iN#J$UWIA)$@Xv<HQ_dhxG`geZ*
-wuD2XuHN@&*?dI_<zw%kIb~{|VJwzCPiW7OLPVN$&VQzrekh{2-oWv~t2l1Ap<NyEw
-
-literal 0
-HcmV?d00001
-
 diff --git a/app/api/routes/admin.py b/app/api/routes/admin.py
 new file mode 100644
 index 0000000000000000000000000000000000000000..68cfd35d86f532beb1e2ad38c38100e1ecd56134
@@ -501,10 +374,10 @@ index 0000000000000000000000000000000000000000..68cfd35d86f532beb1e2ad38c38100e1
 +    return [ProxmoxHostRead.from_entity(host) for host in repo.list()]
 diff --git a/app/api/routes/servers.py b/app/api/routes/servers.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..921b65cb8815b2c4b1bb16c34b2952edbfc4c259
+index 0000000000000000000000000000000000000000..bd1462b4014cbc4dd718dcb1c1731c8009363e59
 --- /dev/null
 +++ b/app/api/routes/servers.py
-@@ -0,0 +1,67 @@
+@@ -0,0 +1,69 @@
 +from uuid import UUID
 +
 +from fastapi import APIRouter, Depends, HTTPException
@@ -558,6 +431,8 @@ index 0000000000000000000000000000000000000000..921b65cb8815b2c4b1bb16c34b2952ed
 +                "disk_gb": plan.disk_gb,
 +                "proxmox_host_id": plan.proxmox_host_id,
 +                "proxmox_node": plan.proxmox_node,
++                "template_vmid": plan.template_vmid,
++                "disk_storage": plan.disk_storage,
 +                "description": plan.description,
 +            }
 +            for plan in plans.list()
@@ -606,62 +481,6 @@ index 0000000000000000000000000000000000000000..4f0e94fd7d822bbb3c3481c16a8756b0
 diff --git a/app/application/__init__.py b/app/application/__init__.py
 new file mode 100644
 index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
-diff --git a/app/application/__pycache__/__init__.cpython-311.pyc b/app/application/__pycache__/__init__.cpython-311.pyc
-new file mode 100644
-index 0000000000000000000000000000000000000000..851b7a7c3b53900d6eec1ee1c8c6c69f85b46fef
-GIT binary patch
-literal 136
-zcmZ3^%ge<81V=<wGePuY5CH>>P{wCAAY(d13PUi1CZpd<h9V{)|1(JPmvmx5fj$uD
-zWF{w;Waj7T$H!;pWtPOp>lIY~;;_lhPbtkwwJTx;ss))=%nu|!Ff%eTeqewRMa)1k
-E0Lt1M!T<mO
-
-literal 0
-HcmV?d00001
-
-diff --git a/app/application/services/__pycache__/server_orchestrator.cpython-311.pyc b/app/application/services/__pycache__/server_orchestrator.cpython-311.pyc
-new file mode 100644
-index 0000000000000000000000000000000000000000..e4069a725dea7c09dbd6fa22915bcec034c1f953
-GIT binary patch
-literal 3236
-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
-GFZ{oNUMv&<
-
-literal 0
-HcmV?d00001
-
 diff --git a/app/application/services/server_orchestrator.py b/app/application/services/server_orchestrator.py
 new file mode 100644
 index 0000000000000000000000000000000000000000..403c242227ff05b10ae064325fd5fb34d1f8a085
@@ -729,61 +548,6 @@ index 0000000000000000000000000000000000000000..403c242227ff05b10ae064325fd5fb34
 +                self.proxmox_client.destroy_server(server.external_id, host=host, node=node)
 +        server.status = ServerStatus.ROLLED_BACK
 +        self.server_repo.update(server)
-diff --git a/app/application/use_cases/__pycache__/provision_server.cpython-311.pyc b/app/application/use_cases/__pycache__/provision_server.cpython-311.pyc
-new file mode 100644
-index 0000000000000000000000000000000000000000..935212e8f244214c1f3de85dbd780efe4293b1ec
-GIT binary patch
-literal 2193
-zcmaJCOK%%Rc-H&y`jNO!o0ka4ZBkMfx>4YSgnFQl2o9m5qz7MCE6=!Dy52Rj>p&tG
-zMJR_H!a2QR2`L1HAJ8KQe!wQOl+{Q`l@JGRi^8cVzL~W*b_mSQeDgi#@xA8TAIHY>
-z2-^3PH|<{)gnsA5paCt~**Z-72qP>xs43MXiQ^e3)0Atnz-32isx?*Mila5NwXDEZ
-zM{nk8Ie}|VzFDXhB$Pob2xoT?)(<iW9l=Oit%!4vQ8oW3C#w=u*494053}}|&<#QX
-zn|MUM4coUp*LI&i@*KOq3EV4*{4>(>d^_+c=Z&xVgpP3DNLHmMd`j!<#1E(iJL-K6
-z#H9C$vyTATM+DU*jA|Jy)nuF@3YLkA6{2C4WE(oxc9fcqvm}RglE*n1c~Ss=0r*8+
-z1bfC<DZMn&Ve5kjZa_CHEzfp?O5jzV+4W}?uhFQqhU}{}JX*0TZ7`(LYJ;|xPYhN7
-z5}aXDu$JYxFhRAJa0e@bHRpDzLxyob%P`LF3cET|2brn3lL1N^kR2JQG%g(lD85rP
-zjKC&owW`np(6q?G7zg73swz`_;xsOk`COR_Z?ErIt=19@2%r@}G?%~*vkvz8OQ{FU
-z#89KP$#m1ST{|$%t(gm+GzJo`fqx6YHj2m5+~Tg%(`TaD8@tNhcr-N!Qz4qW#ksSg
-z=x4ANv8-^QjhWJNESKqymng(EN`f|Z>w_o2S9AS^1K$Ei?V}F*f^$Xdrmh=s_}q~W
-zfPa+Ao+};2F9kzE!53D1D+Sr}6CgyHj{I}x0B$`>1Mpmhn^V2IL#GYxR7Y=?xVG9r
-z-W|GQzyobB+cS6!sGB=qd5(3|jxzd);U*OlL|)wzPq5;80VHzU#Z{T<-d8T<tBvU-
-z96_f5RP!Q(nEaFkEdRuE+T;PH9;MtskylLLupAp(0TD^XWD8@FYb=-MN>!s*`1)%c
-zq-QgQN0(_yBKh2Wk$x3g29#yV*QDMK$kz15r0NT1VU_<KfNd0&uI_zvTDpExy53zp
-zF5T{xZtp6<jFFUE`fXw^eDlungwdNY!lLm<dAd7&7`$8$%PYs_m0o#eSBv!GUg1=q
-zJJIJ}JUP}Edip}BF8~*^^m6v>sXl+A&vzdl-apotd-`&yFGr=x-7$I<G+KqK0<Xfg
-zn#43&-ZYyYZaW+=n&y{n%jrw9ris0}X;N-H<zc5hUnmbNo#23{6_cS3CLX^I<WET4
-zA-qKS-$4M5_&Wf$(=Sr)h048H$*a{@lQ&}(=2%15Zp2xR>8Ly(=Qx%})9=Lvj-gR7
-zlT)W&1Tli?@O?48oEOtCZ;R<aL82g6iF-n6w;`v5B{NV}4D2;6+cm%^#PN+J{K7o8
-zI3(tLyH0!~O(XcJm`NEGUSi99we2>j1^#K*p&$^0*In_Kv0-O&v?##IpGWwa@zVCc
-z`_i)A-^ByN-sQVs42q&ST`1VUX1KB^5fs5$gw5vxd#!(%<icHQfPmK?{|5lEEJ;#?
-xCd1MG3cVAK_6R);M|*@;!_gk0Pr}h2q0ht79&0nwRE+)&{^Gp9FA)eM{s9B{D+~Yt
-
-literal 0
-HcmV?d00001
-
-diff --git a/app/application/use_cases/__pycache__/register_user.cpython-311.pyc b/app/application/use_cases/__pycache__/register_user.cpython-311.pyc
-new file mode 100644
-index 0000000000000000000000000000000000000000..e664231e8720147414c52a7c580ba07b7090f6b1
-GIT binary patch
-literal 1192
-zcmZ`%y>HV%6n|%*9k)%%&=d*E;7C-+RB|LHq@pe$Au(iV#S#!Fle>VC<Ak##kt#?X
-z7&3HkC6-PFR0c*y{)7}&B07nQi7hBhop|Sb(DL!@d+*)5Xa9ch-FvgRI1ebVmsi72
-z1mK(AOodLI(M@#rfCDEHG)R>Y?HiHNFsmj31MUJhUje6w2EY-nu~aFyw!pK$>#au=
-zy`Kn)_JX#XqSZ{ov?)8aNqT1N$!2r|ojnjxB^;^-CsmUhg4PWLqE(AiVRH+YEpm06
-z=P>4Q2f^l4ep5UNlT=8JvR%3@MUV<Nh`HMmGQkr!aNBs~iZ~6^j<4qBZz?nHh^~DT
-z*Ql6L>5?um^v1#g!AQj;GKT@rP&5%yJ=-MuL)SgM9<*9zTv1pH(y$qq5tY?~L?mT7
-zp~y55ztvF=V__VojBPKUrSDI}4*oJ(M70Bh%U64Jx6s39gaJ^NXar%T@~x-MSg^R=
-zcr2u{rAXT{uIU1%qOUV6=pj0Lkm7Yu1&cG@lk?a2((J;sS<b=P)=WQxu6c+VN3$$~
-z5p0Z6@eHZy$_uDGQ)<|(Im!$;_o$rHfmw#4x)F&c=%PqHk}4-&h*~=p+r@J&nM4;b
-zB`KrYfv<(7{nfWozp#E>SU)MO_vpaM?-sr|E1#W}{X54_>BK4ZozkGN)LW2w{HB6)
-zf-R4OhG0z1GuCMGcBK70W6#?`G&#vJ#+x<9q-G{Hq%xCKj>}oX?K{Z+ml2kFb~9z6
-zlRQGTGkXSftxwm6lvt|=8$&?zr?O3}xW6?7G#|{&e59HAuNp&Z)QV@Ri#TdNZ{jS(
-zK9(b*#Me#DxGFt|ei+wffb`on91Y>m#y%9|R5pur#sy~uUD8$Qre#H*I=9BX+K^W;
-nrY}BufNE$GLI!ZHfBqf7z5e-kXwQ-25dKy_bnNFp4l?jxqk$Pl
-
-literal 0
-HcmV?d00001
-
 diff --git a/app/application/use_cases/provision_server.py b/app/application/use_cases/provision_server.py
 new file mode 100644
 index 0000000000000000000000000000000000000000..0169d5516b463c5572644450535e8405dd371e89
@@ -862,74 +626,12 @@ index 0000000000000000000000000000000000000000..bf89a8899de8bf183281e01d20f936d9
 diff --git a/app/domain/__init__.py b/app/domain/__init__.py
 new file mode 100644
 index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
-diff --git a/app/domain/__pycache__/__init__.cpython-311.pyc b/app/domain/__pycache__/__init__.cpython-311.pyc
-new file mode 100644
-index 0000000000000000000000000000000000000000..4a4de8205c246b222cae2071020b76b2381309eb
-GIT binary patch
-literal 131
-zcmZ3^%ge<81V=<wGePuY5CH>>P{wCAAY(d13PUi1CZpd<h9V{)|1(JPmsny!fqqJU
-zZenJhetdjpUS>&ryk0@&FAkgB{FKt1RJ$TppfZp_#r#0x12ZEd;|B&9QN#=s0{{%B
-B8KD3G
-
-literal 0
-HcmV?d00001
-
-diff --git a/app/domain/models/__pycache__/server.cpython-311.pyc b/app/domain/models/__pycache__/server.cpython-311.pyc
-new file mode 100644
-index 0000000000000000000000000000000000000000..5ab5023a8d669128d25bd75431ce113fbcc309c9
-GIT binary patch
-literal 1502
-zcmZuxJ8#@Z5MGkY$GvoVM2PKk;*0FSIb5JCl5|FZv-QA5(#fzQ7i<{jc9qcK<Fe$*
-zkt+%?0+mV=yG*4Zkc$-g2l)d$Kn1atfmG>EkSkZ2C3Pn#@^bj?H?y<L-I-bbUa1rj
-zw1fGNoo{4>{t?Q!Y3JnZXCN;SK}2$qCz+Bbo3bQy*;PEnR5Gr(*i%h4<Ji?a-PAq9
-zG$bUWRYcV1h-kDx)gz41F}!&*i&V<Sbr?5}U<b$W=Isc&<FSIw5-Dt<M)6-^X~?`l
-z?8xr9b{KMX$DuB1NZbG$jU0~x$IJe}13$dI-C5%5VBnC?dz00GNaxDg0+1JoB2yyB
-zl!;_2L^d%|OqF0$BdVzr4Zf`N@)l*glx;<JGzhugr#^A~?|8Y-f?X$c0$*sF-HV)E
-z%C#NaaVg;?7P!z`-`c$&x($OHmgU<XwJct=EH5AfSMaiB{W!4Q^AY{wa(AiIUFGG6
-zk2W87wmO?#p=s?0Uw0lab8V&FSzlh_rAM3V&|CN057z!bXW~3>Yj(fiB7tW+ehXHo
-zZrBR5T`%_cm`HU7I*{-#Ks<TUsrTd6bnc^gJ*~{gD>=;Gir2)$u8(J43ZVj4(av50
-zT!e5N3dK|?rYe!|!3foWDHDb>rav*nRME@=)xkp*b{WwkExpo?AU((96d|*mt)@>r
-zDo>`esQ_1etF!{E8N!zo%xS8T!ZSE9*owIgl3C(fp3G-=^1e>}$cgsq5raHYQg{4%
-z^gXTTkzC|P@YJWwatOzL*Y>&L20c51lyfc2$^j~_O6ZO~a3gC6N+4i+Tn6`Ik5MQ}
-zV%brbm*`IsWxnmgLX8<V4Lf8r0%ifYZdoMgSr!x7;Z@7BeLsN3;VU7Oh!RFD&)}Sx
-zQWqfZ5fgD_qKKIaz_mft^Mj}Cwy@k0a7{p#!5f0z977dI_$$Cg6~yQ@UQF=f>#5ne
-z8+Z4+X|WP_;?902otlX^;*I@{w08HT){0jS))U+U8RAx2eeYoK+jdfI4y(<RYBRon
-zfD_yV8RBMItH1o>&uf3(N^0$4t$k8!$6p;932uW7aXbBRAznM2JB)t0k>CZ8VTM5R
-zEsNcD8)aUa+;<u>QF!^`vm;{)cb$pf702SDXA#WfB8ohZT6XNqp?GWD%WvS9>{IX)
-z<re-8Fj6E*O3^3DyCg*)B$p*c^T}mN(aq#tGSXD3K0;UF@UxfrRM_8K3{E4tG?EL_
-X?Gd^Pr^5C|z^MX$&#(W_GYj5-o0WKj
-
-literal 0
-HcmV?d00001
-
-diff --git a/app/domain/models/__pycache__/user.cpython-311.pyc b/app/domain/models/__pycache__/user.cpython-311.pyc
-new file mode 100644
-index 0000000000000000000000000000000000000000..724f8a7489dc2d6701fbc03e9cae9fb608614a89
-GIT binary patch
-literal 974
-zcmZuvy>HV%6u-02&R5e&h(N1=@Pb4Xsa;?zNGV7a8M>ehSV*VCccDi9NY7_bnSxZI
-zZm^Y+sR)&Ufj`8NIz*l-F|nm8QzzazO$BP7-~If1AHI9<{Jz%fRRr>(dDnlA5&ET#
-zxmf4q^aYT8#1Y2<3bBhr!!@wBjlc{|*DSahkkE3i&~|N%1UAqH;$#<b>%c(h5Y|i%
-z;B`1RkXz#RGt@5q)}FSJS2$D53s{om*1#75Z{xfSKB4?jK%DgZPoLygn)>{{cd-i)
-z^V~Rn17sfw<YJCoqYpK^rXa%N#u`KlW@=_2VT;mtasXW)!kUR&78S^~E;6dGYxCHp
-z+yzmETwCYz5_D09@)9B6J$xKX;iNzv5h-8oI8qFyNVE~Xa#-Xr&x_MYIewJ*TsUe=
-zIKzOcK`g_S+!7)4gM4AQ6-R<bY4}n|xP}H71C|Dg4w$E6xsw|{&#Rska66nbwb`!c
-zWlAF!3QF@TrD4p|K=TDkw^J6JM@p3P*aNqjD491XWl<C>ru;ZcD3t`dktGdv4Yme7
-z2)UgqFN)vFMKHdhQ$TdK%!b2N9z(s+DjX+*WL3AlGTf0Bh!>!DNPK|NKhH7Q$jHWV
-zZE@5a_1^a;*P0p8Iws9Y<N99urJprA<3{JG(HX7pk&JXe$D}i9IiDZ=So(P<Yjwx1
-z?oq2d>U}C_qzgJO5Qw}vKYJ7YN$p~!L?ZQ=%vvmZB6^T!Jr*q&Mc>dl#THAz&dO`E
-zi+m(oVCqRpJ_1ZljPV5B%dXN1x}E*66Lc%PN~bn5YE#3;>v)Q;#*@PTr@#{v(s!3H
-Ie^3<s7tdGrCjbBd
-
-literal 0
-HcmV?d00001
-
 diff --git a/app/domain/models/plan.py b/app/domain/models/plan.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..ee86ddb6bd0872b4bb3d56788f2507464dc84532
+index 0000000000000000000000000000000000000000..065a5097f48d05a7172475360829b513e28059a9
 --- /dev/null
 +++ b/app/domain/models/plan.py
-@@ -0,0 +1,15 @@
+@@ -0,0 +1,17 @@
 +from dataclasses import dataclass
 +
 +
@@ -944,6 +646,8 @@ index 0000000000000000000000000000000000000000..ee86ddb6bd0872b4bb3d56788f250746
 +    location: str
 +    proxmox_host_id: str | None = None
 +    proxmox_node: str | None = None
++    template_vmid: int | None = None
++    disk_storage: str | None = None
 +    description: str | None = None
 diff --git a/app/domain/models/proxmox_host.py b/app/domain/models/proxmox_host.py
 new file mode 100644
@@ -1021,32 +725,6 @@ index 0000000000000000000000000000000000000000..5bc4b62608903bb1b8cc245043b40500
 +    external_auth_id: str | None = None
 +    id: UUID = field(default_factory=uuid4)
 +    created_at: datetime = field(default_factory=datetime.utcnow)
-diff --git a/app/domain/services/__pycache__/provisioning_policy.cpython-311.pyc b/app/domain/services/__pycache__/provisioning_policy.cpython-311.pyc
-new file mode 100644
-index 0000000000000000000000000000000000000000..4933239574947c084b5f5b774933a838f7d3209e
-GIT binary patch
-literal 1519
-zcmaJ=&2Q936n|rTy(YU0VkP>OZZtswu|?gbs#FlINRV0)a)>~*99Bppvok41UfUge
-z7bVIesyOt(JrM|r6Q!bu9QY%8=)sZp5Lt?Z#EILY^u(!e?6s4SwBzSD@5|5c{pQW@
-zwb}&WdUWcHv!MaJQA)myv9Nmyg>~S-i3>f_Aw<cVtM&AbPC$ce!1af~jpvx*CBE6}
-z7`$`~n&w-jHc4V#kA$@Ex&meMmXHG>yW`MwD~*-i1r*jnK!<SXXq<F(t_eewJ}siT
-zeo$XBxbe{Fn7ky)+~j4{Ez~Vu#sZEd^&8S3IHBWvj`#Bo-*vjnD|6rbJ=^i9?7JeQ
-zOTMH7+jY1dVF-P2Pek{Gq&5xHI%(JT=v_gBJdfb5<fQGo{sY08>v!=p-wTskZVFu6
-z3%hzzFo2TPyL%hiIz(j8w@RL)_Oh_70xRSLaoVA{0&EW0DOqgli5`kbmNC1ukfFf{
-zg}bz82~`!8()VB3LD1$Y3T@S<(-mR6=n!FGK?+qXSWYa)9M6duTbVqJWh-|c!^~k5
-z*&6Ij&%|fG*_ysMoWA&*F|?+38uVFXtI-}d+DiW{PH7i|Au%(Q6H|()FTKTX(H45u
-z6sEvEMqwRR$$i|jwF>tOpaw*K9OWZ~Zcg?`K7pqnfcLBNtGwyLO!>6Kp-kHT$fGi)
-z;OmPkAN}No{UGpVBsk5d;xb*S@3*VbxJ;X+#L6Smvq>gy+iqX{Af+!8Lj`5$r^yOd
-zC{G{@6)cp>DsG829#?VXiR8|j`s@y}HQ274d^G!PW_bEiTv4=B|2%G7+gy6(<A$_V
-zpC8ue<LbN${C0y6r!K@5MQPyd=Gj;0<Hjt~R()<*pNp$=BOR(=VSqf2Kfr5-L*m&z
-z!B{fESkLEpvrw)w_DkP($DT4{-0w0b74$f(k(8=NsnD0Fko^H^y0l4YDyw4Z4Si&5
-z#j|ZJ#KywN&`K9xoZI~R&o4)S;$K#L^T)qysr(_cjM7!IF&Kf`U(96t|MRRC_4h?Q
-zF*8~Y@LpuKe}dPim0h0}HY?n)m5p)MOIrFQez@1pd+WOll`C=z9cpw#fo!A`LbhQt
-cK1i?Oe0-2bW`$fOBRHDBOYQ&shc_+bUs9H8>Hq)$
-
-literal 0
-HcmV?d00001
-
 diff --git a/app/domain/services/provisioning_policy.py b/app/domain/services/provisioning_policy.py
 new file mode 100644
 index 0000000000000000000000000000000000000000..0d04c5dab3097cbda043a84c33d5a646b47137ce
@@ -1091,76 +769,12 @@ index 0000000000000000000000000000000000000000..0d04c5dab3097cbda043a84c33d5a646
 diff --git a/app/infrastructure/__init__.py b/app/infrastructure/__init__.py
 new file mode 100644
 index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
-diff --git a/app/infrastructure/__pycache__/__init__.cpython-311.pyc b/app/infrastructure/__pycache__/__init__.cpython-311.pyc
-new file mode 100644
-index 0000000000000000000000000000000000000000..93b896d17ee8c50c3cceebb507e35fb1def2e99f
-GIT binary patch
-literal 139
-zcmZ3^%ge<81V=<wGePuY5CH>>P{wCAAY(d13PUi1CZpd<h9V{)|1(JPmt0~&fqrIQ
-zT2W$gNl|HXNoi54etdjpUS>&ryk0@&FAkgB{FKt1RJ$TppmLCb#r#0x12ZEd;|B&9
-JQN#=s0{~1_9Wnp_
-
-literal 0
-HcmV?d00001
-
-diff --git a/app/infrastructure/clients/__pycache__/proxmox.cpython-311.pyc b/app/infrastructure/clients/__pycache__/proxmox.cpython-311.pyc
-new file mode 100644
-index 0000000000000000000000000000000000000000..a7544cfa683126c0ca681597c46e43fb18130a72
-GIT binary patch
-literal 1667
-zcmZ`(y^kA36rcUDy)oy@C33<AozNsCA{M%}s2~wSLMb2;oKEBv1yhXncE<4}vmeaN
-z`Yu+AE3UYLA_XV~LZaeBH2EX=16*8jT8WB^&giI8@n+VxZUc<hZ{F;C^XC12@6G<y
-z>9i4yXP0j9-#mo=FpI_T=gR5(pgczuQAeP}890v7UEwC)z;lp`K1S3#MAZM$Md(-f
-zS7YGQ#y!+){%Mvyr)=J1a?B)Xfnr+o^r4F9u6BCmIEDreMFW>Q1CP3g2*P=+L4DR7
-zLf}Jx(4tM&q&{uII)HURTX5XDva>C-{UqDJBREU-<iXB}r+80BdCnw`WLBgU&t32*
-zJ3HI>qwTx+reX|_w9eJ-em@_xFt37yah90%Ce32ik8-{_=4_A2elLujGua!|z#lpl
-zAf6+A#`I|E_Y{#OJ2elp(+==h&`^)jIOEY==oA59XRFteW>dK`&zX!erORM9Qj8Q*
-zlxvIkI(y7g!f6>SwQk*}SS*<?S1Nn8f`a*qiJ>w$@XH%OWS^%)87VD`SQnD@V@tK_
-z&x3{elQJNLr(6><xx9V09^vAB0MXRjAP&&)>-czm^T_|YW3_j!wsHM<<JOUX99)^&
-z=M-E~*;KZP$|j^)$TVK^3C3j&F2e%))p_bXGMnu94t?(eTkhmrNN3Cy&r%%WDjJTU
-zC8~f}j~HhAn#nX0m{aH=KIBY>?KYl|yD0{o6rh_Jdc+mp%L+kp90_6f&jI6D6bd5Q
-z2Gbb^Y9r0y)cc>|OyW-;+zFRKC*C;O1g2e1d#+rCl;uSb%3#7+o`=cSvC5oOc~9P~
-zQwwR;>>U%K3*rFHR?*tkXZOGPVtO8%C&2Q8iTT<BE40N{jZIT++tH@o44am{Tc2k_
-z>_+ipJYvFJD1%F|D8)sNhY=Ty8g{BQ;ELl&YnJ3%g<HP>`xUa+Az}^LDrL}2*^>pX
-zjXJKn)l^rV0|BT4wAMY+77E;a=(#jX7$IewkOWF3jJ`t1S4AY|mKGs!l?jn+5J4J%
-zr3YtA6IH%p#1$h9IhJ*4;9Fs?ph`d-EPp5d?$qC%`CjAp3@t^w)wue@c!pql@s^!l
-z6&L+R_h&G{^y0dm{#R6)m?XA(jdC3>Ur4hg;%Nu~nNVTX3Kf!T#$3Of@BvGQ{2{ni
-zpIrN?s6f?$z6?I7DEm-egVRj;)t4Y<p5r(t=$&c(IYIAD>(8ut$?49}zr|nX-QWLV
-Hu-N_q&I_`S
-
-literal 0
-HcmV?d00001
-
-diff --git a/app/infrastructure/clients/__pycache__/solapi.cpython-311.pyc b/app/infrastructure/clients/__pycache__/solapi.cpython-311.pyc
-new file mode 100644
-index 0000000000000000000000000000000000000000..fe0d9936c20ef44077472d7f66acdd4f65bcc84b
-GIT binary patch
-literal 1252
-zcmZ`&y>HV%6u*m|IE3_54MnXGR{2sS<a9t(st^(a2^DBSm?_K2^_^RTzqqrD8W=is
-z=)lC%|9}s%F!E<~$WU48#KdM)rcS(boG20P#rL~+_ujpG@AqE5Oia`ej8Bal?voNi
-zzvN~x)IvD94Z;DUh++@<xPvh&p~r}p_7GJ*!>#Wy`=e8$s)?HA-*Vf;X;rW|c7sh}
-z7Y6xKDK>>;hB}xcxQaW9blOp=!pc;IS*8`ILbW}$Q=t`bTutj{=vk5b&~sT3cW<t{
-zf$LkIZa#nZ;KiD5uA91G0cBjbHbl%VJ9fjsu<^+AGFS!Xi3f0i;t|#Bq1^{WhDnWC
-z$eZ~9ivdC7KFT8&gG_-uh#t3_8kY{zNs(tkAQSS2?WEd3m>E$BW^)#&HK{A)*+T8`
-z&?iCSZ!n%-9N7Tns$iZYWFq?Mbt{TmZs2eWxJc|c;jCrn%!yXtlM(HtRYHKpn2>J6
-z93j^j9Bbf9+ydA|$MaWv^TxjVv3|U;)LXa%($w+dwcg_0eYID;e3*YHV2aXG9HyGj
-zgs?VQT7g6o9<=QtePAME%nKn|g8srlQK|dhg!<`Lkk@kCwTjXjwVGaxS6fWy42tgh
-zk;i=K14~v}e-|bm)f2(=7%W1^acx(&#-pdJ`c@oAVzt$xY@2yu#JDgD0^nrmx%~|_
-z6+Qvs@EHlS078ZcFY`%Q(}wIW67g``74RmsHW9w)E{zd)rcGV?x&W|?vPm>Ow;%Iq
-z*fllDe_;8HkhDgKAJW8=a-ER3iRBd<jSw2zgzzaDg#zW|mq6kT3DQp<9+$nBgKSOl
-z5@2`uJ5rYq)#Xf8$}1TfLQN~reN{39%MUwWe$sq77y8f1m)cDwU4j-f##_v=!@zMj
-zjlq9EZ~1;`<KdoG@AcEY&#!<x*$-k3AX6~LM`-16{L3m+crHW#!ykF}_Y6fI>OXMH
-BH<<tc
-
-literal 0
-HcmV?d00001
-
 diff --git a/app/infrastructure/clients/proxmox.py b/app/infrastructure/clients/proxmox.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..ea15916d73bfd82f2547b5ef152179ebbd15d6ee
+index 0000000000000000000000000000000000000000..aeff875e9c9a1f15e12ac5a524ec2226a5d10035
 --- /dev/null
 +++ b/app/infrastructure/clients/proxmox.py
-@@ -0,0 +1,73 @@
+@@ -0,0 +1,108 @@
 +from typing import Tuple
 +
 +import httpx
@@ -1179,11 +793,12 @@ index 0000000000000000000000000000000000000000..ea15916d73bfd82f2547b5ef152179eb
 +    def authenticate(self, host: ProxmoxHostConfig) -> Tuple[str, str | None]:
 +        """Login with username/password and return (ticket, csrf)."""
 +
++        base_url = host.api_url.rstrip("/")
 +        login_payload = {
 +            "username": f"{host.username}@{host.realm}" if host.realm else host.username,
 +            "password": host.password,
 +        }
-+        response = self.http.post(f"{host.api_url}/api2/json/access/ticket", data=login_payload)
++        response = self.http.post(f"{base_url}/api2/json/access/ticket", data=login_payload)
 +        response.raise_for_status()
 +        data = response.json()["data"]
 +        return data["ticket"], data.get("CSRFPreventionToken")
@@ -1202,24 +817,54 @@ index 0000000000000000000000000000000000000000..ea15916d73bfd82f2547b5ef152179eb
 +        if not node:
 +            raise ValueError("Proxmox node must be configured on the plan or host")
 +
-+        payload = {
-+            "name": f"vm-{server.id}",
-+            "cores": plan.vcpu,
-+            "memory": plan.memory_mb,
-+            "sockets": 1,
-+            "ostype": "l26",
-+            "virtio0": f"local-lvm:{plan.disk_gb}G",
-+        }
++        base_url = host.api_url.rstrip("/")
++        vm_name = f"vm-{server.id}"
++        vmid = self._generate_vmid(server)
 +
-+        response = self.http.post(
-+            f"{host.api_url}/api2/json/nodes/{node}/qemu",
-+            data=payload,
++        if plan.template_vmid:
++            response = self.http.post(
++                f"{base_url}/api2/json/nodes/{node}/qemu/{plan.template_vmid}/clone",
++                data={
++                    "newid": vmid,
++                    "name": vm_name,
++                    "target": node,
++                    "full": 1,
++                    "storage": plan.disk_storage or "local-lvm",
++                },
++                headers=self._headers(ticket, csrf),
++            )
++            response.raise_for_status()
++        else:
++            payload = {
++                "vmid": vmid,
++                "name": vm_name,
++                "cores": plan.vcpu,
++                "memory": plan.memory_mb,
++                "sockets": 1,
++                "ostype": "l26",
++                "virtio0": f"{plan.disk_storage or 'local-lvm'}:{plan.disk_gb}G",
++            }
++
++            response = self.http.post(
++                f"{base_url}/api2/json/nodes/{node}/qemu",
++                data=payload,
++                headers=self._headers(ticket, csrf),
++            )
++            response.raise_for_status()
++
++        # ensure resources match plan for cloned templates
++        self.http.put(
++            f"{base_url}/api2/json/nodes/{node}/qemu/{vmid}/config",
++            data={
++                "cores": plan.vcpu,
++                "memory": plan.memory_mb,
++                "name": vm_name,
++                "virtio0": f"{plan.disk_storage or 'local-lvm'}:{plan.disk_gb}G",
++            },
 +            headers=self._headers(ticket, csrf),
-+        )
-+        response.raise_for_status()
-+        data = response.json().get("data") if response.headers.get("content-type", "").startswith("application/json") else None
-+        vmid = data.get("vmid") if isinstance(data, dict) else None
-+        return vmid or f"vm-{server.id}"
++        ).raise_for_status()
++
++        return str(vmid)
 +
 +    def destroy_server(self, external_id: str, host: ProxmoxHostConfig, node: str | None = None) -> None:
 +        """Rollback helper to clean up failed provisioning attempts."""
@@ -1230,10 +875,14 @@ index 0000000000000000000000000000000000000000..ea15916d73bfd82f2547b5ef152179eb
 +            raise ValueError("Proxmox node required to delete VM")
 +
 +        response = self.http.delete(
-+            f"{host.api_url}/api2/json/nodes/{target_node}/qemu/{external_id}",
++            f"{host.api_url.rstrip('/')}/api2/json/nodes/{target_node}/qemu/{external_id}",
 +            headers=self._headers(ticket, csrf),
 +        )
 +        response.raise_for_status()
++
++    @staticmethod
++    def _generate_vmid(server: Server) -> int:
++        return abs(server.id.int % 2_000_000_000) or 1000
 diff --git a/app/infrastructure/clients/solapi.py b/app/infrastructure/clients/solapi.py
 new file mode 100644
 index 0000000000000000000000000000000000000000..0558e27259511cc568021c7d90c2949d31fed2d5
@@ -1259,42 +908,12 @@ index 0000000000000000000000000000000000000000..0558e27259511cc568021c7d90c2949d
 +
 +        # Placeholder hook for the official client
 +        return None
-diff --git a/app/infrastructure/config/__pycache__/settings.cpython-311.pyc b/app/infrastructure/config/__pycache__/settings.cpython-311.pyc
-new file mode 100644
-index 0000000000000000000000000000000000000000..abd38ada2ae9a70b5e8e6c7d2d157d0ad435e5fd
-GIT binary patch
-literal 1791
-zcmZvd%}*Og6u@`wv01=;8;l)eZ6HWBRgF~PDl(9YkOg9bjew-om(}7OC#%@I?(RAQ
-z)Ptq=K&2jhtB*cWs`L-YpD`=>V9lvgPrVV56Q{me+kC{Coq6-|elu_M-W&VRp`if|
-z$}f}i+Sgu=`<G3+#n%~JZNT6UPUTd-$d&jUU-INUJm=vyIo0zkr+P7e4tw82YnPnY
-z!(s0^Ox|~wxExZ^J{R}>$5!GV8hEN$cpuxgroXnRZ$raHHGf0H0Cgr;8J=0kT#i?{
-zoaZIn!aX0U9@YCdI`@DTXzh~oVL$FueJe19J0R7s_VqA=%Lq42zdF#v^t;U94HHm@
-zdYA#18NS1e^e}@iGkS*^>tO;eGk%Ae=wXIjCU}RL>|usoW~$9VY(fy5>CgN#qJ|*~
-z5h`?De=6-&bXzN7F>mMv?RCXeY|YTcf?<mI*v6)=6h#Z0@3cI&L`7FcrCcs*`8K8E
-zf>J5kR^l}BN;|^qh6>>nw+zb`*DAJAaw#gT?e5B%wH+zWQ!m!vQ31}7b)|%<uW00z
-zBJE>@lzBx5L9LmFUc$P4I{C)7%T{V}v1}U0CF3~Jh6B5M*~6Xep}dvdKcIn*Qhozg
-zDMv@U+Jo%2l#!o5qoZBIHr`@g)>In2&+JR<d(r_7-sdcwH?d6z_Omb6cAv}J(vNi5
-zGKxxBlUaL<Pv}rb*EwM9j=HmZutRL@Wq0U!M_(|FlB`!sN7%fV@{s6mxtfCRHsx8u
-zs~&hjUI-n!9_fZIvF=9f6eYlEr@o3^_~vmY?xTY2`c{_dfGn2`wNk_|4#@IP6{X0$
-z4l@C^$OWy4=~#CpV?FQ2?=S9(UE_KlqO_>#1yiwXvy!(fCSGhO$)eSHxQX%!^|!BK
-zK7c(zXcik(Z@$(<_)KU;=ZFw)S92Eh<|7c9_^26WlNlyrAZVW~t43ayP4@iFezxQV
-z>vTkx6<s%MH=!)h2bg}Ci7_T7n3!ZD#6*}0X2N{Pglln*jr?7~&bPL}<F_}haxIi4
-zDEm(^T$4!TyANp++;oDQ&ERHr>nu;uCR7J)wnEWbrT)W3oP?H~&{8wBRNbyk5VQo<
-zK}(l@E*z`-NG$o`37Jki)9L1Py85CvM^GB7gVL?&!@AU%B?~Jgy6Qw%o6%K*f;F%J
-z{i=gjTjG4f*Ek}HXGD}7QEG}3LDO|O0eZ<n64-bk*5@0ZivWovok+47Nmetpb%K&m
-z9h7X%%+_BvzP<RK%q%-I%gvc(f+lMgLC`NdXt@=etK-Jgiyab6Ik8kTmLh1X?j;EN
-zl!H>2$m4r-$@PklZ0*w*6m2In|GGI?K2a6;UCEp5U!fgMrlUePbv}#CwXo7o)hFfx
-zaO^2qhafJ!JkPhdugI6`rGK1<TlR{xpFgtIPq(TCE)YC>{9EexR8?S~d)@y5T#n%(
-
-literal 0
-HcmV?d00001
-
 diff --git a/app/infrastructure/config/settings.py b/app/infrastructure/config/settings.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..d10e390e6a7f25db2ef3f09d3f78cd5dccff05bf
+index 0000000000000000000000000000000000000000..41018f11368860addb7bdb22c6b2dfa3a3474221
 --- /dev/null
 +++ b/app/infrastructure/config/settings.py
-@@ -0,0 +1,26 @@
+@@ -0,0 +1,29 @@
 +from pydantic import BaseSettings, Field
 +
 +
@@ -1315,239 +934,401 @@ index 0000000000000000000000000000000000000000..d10e390e6a7f25db2ef3f09d3f78cd5d
 +    solapi_api_secret: str = Field("", env="SOLAPI_SECRET")
 +    solapi_from_number: str = Field("", env="SOLAPI_FROM")
 +
++    # Persistence
++    database_path: str = Field("data/vibecoding.db", env="DATABASE_PATH")
++
 +    class Config:
 +        env_file = ".env"
 +        env_file_encoding = "utf-8"
 +
 +
 +settings = Settings()
-diff --git a/app/infrastructure/repositories/__pycache__/server_repository.cpython-311.pyc b/app/infrastructure/repositories/__pycache__/server_repository.cpython-311.pyc
-new file mode 100644
-index 0000000000000000000000000000000000000000..2b7c20d53a3b029fa8159575b34e460adb9fa403
-GIT binary patch
-literal 2191
-zcmb_dO-vg{6rR~#uNQ-BDv}cV6E<p+%0NxpG?AhpPDoWQG=ZcCOVxI>GbWqvuHD%+
-z6_$}WAeBl;O{G?F=z$X@;?N#@=&hIDY7kPaJw@uNH!Al~aq4@swuOPDmyTz?eKT+7
-z{e1J|AF|mDfwFo2iu=1l$RF706s;|^?t`#F7-7^SJ}pv;vf?SeT2y_lsL8(SrF^}p
-zOIh>MzELzNQOJjcrB(^kx54@@w4@aKSbCo1jX$xQr?GJ-;=+FD@w^giGp-ZG#z&RN
-zEeEy-TJ6DuJ2UXr=ebzq!f6|kpH#cks(`RTI4M#_iVCAel_{&Fs4<nNn8s2ijp?ge
-zQ9ssCLqE+7ZZM7a@zhAyF3jx%U4~_(uK$FtA9MpO1qlqqgGo$tyiyL`s4SLh@6Ee@
-z#p9+Myz6rxM$8Hqp&Ld#aJX423p12ym^_Hw$mL<dp<T}eC?iCL);b5UL0nQNR#(l)
-zJb6lIkufW=5+Xk#_evoeF^@j5E0sw%C<!}^MAeC^f=`N0aNuk*S!Q*|mI{?6ux7b|
-z8(CIu<YYdDj;bH*hgpCX(wr!)Y3tcF__Z*$SWm3Ry5Qh3n02~44O+}bW^@^Z4N|9d
-z@))F~)am1H_ERu~847guR1pL4i4~WDh<?SZ03lj7P4NoqRGYEdxl<9tD5_hp0YI>C
-z=P}qPrElFm!)(YZ20`^d1SxQn1p4WTORrX#9r4=msn8MyCL%5%U>tE@!k*=_vqQQG
-zlYqBltZj8U168-w={Ah-c6Dtg^KB;81s;JcseA(#9S>Q&1p{YL2}>}=5Q7COb3^OP
-z&vNE|&fFT=%Z(r8#v8_Xl0>=+S-dcXSy=xi-5_hUL>XN*{yUj%Sg{K&DKn(E4|h+Q
-z?YTD^OdNvN8Uy$aTrB`&pX8P)oUp_O;8)6L@?`#)t<!Im^+C8z^7$!$5y;^4YOEBl
-z#cC)P#YLDO;<+`=6?xo_GE*L0W2fv_rfct?+FI0EaJ?-gqA=x^9oq}1LFlYO4#O(|
-z|E!Qk?p{(i)t`rcdGoj7{abe%x9&bs0g@_N?QEUCXnR#2c6LvOCNILL$wkQaIImrN
-zd2quR$aoS+vl9q}vl)HA{A~34{^<3+(HjS&H(+QlckcjZ826HJviMR2w$Cjq&RCXT
-zW>pX60n7TlYI|)>+Ok;Lu`H1TA0mx_F2(BzIs(4h^2iA!SiFO92?6heOiA>igkV4m
-ze+5|S{+inDhIac<qp8V5(gmHS#x}3wz}VJ(`8f%4#>aAWM?0y+b%!uxVpA@j*m|_H
-zcyRS5PMbIhFl~+|PUh&&qn{QJ3ez}ej=mg|{4lH8d?wC0WzXXd{?CO4`=KMri1lcx
-z;sy%>540pI)~Z#PN#f!Q@VpmT*|*)G0PJ%wEWl}lKgEP*Nm?(FN5)jLP1E8USj5L6
-v{2Jg;rIa?w<wkF9l1q)VYLlFA^w#HOywO_^^+AdZoQ;3U@xNc7mCXDLNF)73
-
-literal 0
-HcmV?d00001
-
-diff --git a/app/infrastructure/repositories/__pycache__/user_repository.cpython-311.pyc b/app/infrastructure/repositories/__pycache__/user_repository.cpython-311.pyc
-new file mode 100644
-index 0000000000000000000000000000000000000000..47f0c30736131097520420ef6c5e07c76848bed6
-GIT binary patch
-literal 1650
-zcma)6&1>976rYhsTKOw#z9|GMV>k9TWDO<c6jCUL)E5Wp_#z5}q8TR>B<*ITt+BI^
-z99#$`5Fb+PqYuT2@jtT;fi5}~dg{%^J>}H*W^L8G@gbv`H*bD#=IQs|Jn8Mk#3+IG
-z+vTrSU=i{cE>0RdR*oKkvPA?DG$APsDMj5%tke$el!eT!?Zipl&^0<sYN;1`lvv~*
-z5zYn??k;%WhtY50h^Q@*y7xCO>$LP13aO)qiL6^Cn^$pBdiPs}YGzRaR<^vnFmL8u
-z>iF1&nVjRr(NCak5lKQSNN5Qf+QQl(ArrQA1QX5*6Yd5JT~U)Y!K5dhFDpM_^T0L&
-z_~-y`i4nlZgacGZ%X7={_8(=dnX96y*VeyVQfVuZfy!>CG6f{im9Y^ltwyb2RTYne
-z`R@a>F_l>nVN5|1L9~sSRtyLviVz#d(IpUDM3D~Rm06G_vPTyo11@g^iF^-olFMWz
-zM;F1zZ=+UgPGu`P$_w3&i?)_?6&EG*IXuKGWUbL!D?QFtrV7s2uMWo5I5CWY?|cHp
-z3(}kY<|TVI_7a{WWK}ZsSh`xmyRyZ&x>vAa6ef~sP_{^icE}UZ`mIBsR8ijn2qV+@
-zqPnHWVJa;pKs^Vlz5pUe&q1JlwAqmm>lcRD0*1TuD<FXAS5ruIbN<b}1MgbbbbTHV
-z*GvwSIGgKj*aBQnG2N+nf~jg9x(oPzWgB8|Ka#}>{i|^3G<}T)_X&MCfb>r2`xjq5
-zd;R>^=i93X{>%q|rt8fZ`e)b5Ejal(taoAGK8$`F;_Ut$C2g5&yy<>D^|Q?ql^5$5
-zhtiE8mgs51fB2K{{mBD=>VrSk^`;Er`Z!it7NwH&a+LG5DcT9@<D5TjN6E3J#<^(5
-zoa-;Zr>>#Ei_|U({J2flG}e>824asG?}nisK@^1tBi{t^qI!C4q01Hy8Fg+Pl1jML
-zncijyOz&JW)3AUYv)i{2o!$B2-Gkp3jXEsQ&*tOp;!QSu9$o*B^~oZ|MfidEaWhF|
-zjK6@q5j~7eSfyL6wN&;<GuUN9hL5YQgh@ep1-|TtXr__M8jwPn<PEIjex^+PlXwhE
-z$mHascc-7}yZSm{Sf}|fAP#LxX^%{I2YZi9cF*cPa=AO$|0FZr!G7pYPzd!?@egAE
-Jo?$RF{{!l6a?=0+
-
-literal 0
-HcmV?d00001
-
 diff --git a/app/infrastructure/repositories/plan_repository.py b/app/infrastructure/repositories/plan_repository.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..e951e7c7027f819ba42f3482ab404d03b2d286f5
+index 0000000000000000000000000000000000000000..c6c2e80d0d9abb3e9e521703a24e8f9d8f3ccb2d
 --- /dev/null
 +++ b/app/infrastructure/repositories/plan_repository.py
-@@ -0,0 +1,19 @@
-+from typing import Dict, Iterable, Optional
+@@ -0,0 +1,64 @@
++from typing import Iterable, Optional
 +
 +from app.domain.models.plan import PlanSpec
++from app.infrastructure.storage.sqlite import SQLiteDataStore
 +
 +
 +class PlanRepository:
-+    """In-memory store for admin-defined hosting plans."""
++    """SQLite-backed store for admin-defined hosting plans."""
 +
-+    def __init__(self):
-+        self._plans: Dict[str, PlanSpec] = {}
++    def __init__(self, db: SQLiteDataStore):
++        self.db = db
 +
 +    def add(self, plan: PlanSpec) -> None:
-+        self._plans[plan.name] = plan
++        self.db.execute(
++            """
++            INSERT INTO plans (name, vcpu, memory_mb, disk_gb, location, proxmox_host_id, proxmox_node, description, template_vmid, disk_storage)
++            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
++            ON CONFLICT(name) DO UPDATE SET
++                vcpu=excluded.vcpu,
++                memory_mb=excluded.memory_mb,
++                disk_gb=excluded.disk_gb,
++                location=excluded.location,
++                proxmox_host_id=excluded.proxmox_host_id,
++                proxmox_node=excluded.proxmox_node,
++                description=excluded.description,
++                template_vmid=excluded.template_vmid,
++                disk_storage=excluded.disk_storage
++            """,
++            (
++                plan.name,
++                plan.vcpu,
++                plan.memory_mb,
++                plan.disk_gb,
++                plan.location,
++                plan.proxmox_host_id,
++                plan.proxmox_node,
++                plan.description,
++                plan.template_vmid,
++                plan.disk_storage,
++            ),
++        )
 +
 +    def get(self, name: str) -> Optional[PlanSpec]:
-+        return self._plans.get(name)
++        row = self.db.fetch_one("SELECT * FROM plans WHERE name = ?", (name,))
++        return self._row_to_plan(row) if row else None
 +
 +    def list(self) -> Iterable[PlanSpec]:
-+        return self._plans.values()
++        rows = self.db.fetch_all("SELECT * FROM plans")
++        return [self._row_to_plan(row) for row in rows]
++
++    @staticmethod
++    def _row_to_plan(row) -> PlanSpec:
++        return PlanSpec(
++            name=row["name"],
++            vcpu=row["vcpu"],
++            memory_mb=row["memory_mb"],
++            disk_gb=row["disk_gb"],
++            location=row["location"],
++            proxmox_host_id=row["proxmox_host_id"],
++            proxmox_node=row["proxmox_node"],
++            description=row["description"],
++            template_vmid=row["template_vmid"],
++            disk_storage=row["disk_storage"],
++        )
 diff --git a/app/infrastructure/repositories/proxmox_host_repository.py b/app/infrastructure/repositories/proxmox_host_repository.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..19556d0fb17c275991040934052a497ce9cb759d
+index 0000000000000000000000000000000000000000..7de314783688e319e21365d3834ac8ba1594bb21
 --- /dev/null
 +++ b/app/infrastructure/repositories/proxmox_host_repository.py
-@@ -0,0 +1,25 @@
-+from typing import Dict, Iterable, Optional
+@@ -0,0 +1,59 @@
++from typing import Iterable, Optional
 +
 +from app.domain.models.proxmox_host import ProxmoxHostConfig
++from app.infrastructure.storage.sqlite import SQLiteDataStore
 +
 +
 +class ProxmoxHostRepository:
-+    """In-memory metadata store for Proxmox hosts and nodes."""
++    """SQLite-backed metadata store for Proxmox hosts and nodes."""
 +
-+    def __init__(self):
-+        self._hosts: Dict[str, ProxmoxHostConfig] = {}
++    def __init__(self, db: SQLiteDataStore):
++        self.db = db
 +
 +    def add(self, host: ProxmoxHostConfig) -> None:
-+        self._hosts[host.id] = host
++        self.db.execute(
++            """
++            INSERT INTO proxmox_hosts (id, api_url, username, password, realm, node, location)
++            VALUES (?, ?, ?, ?, ?, ?, ?)
++            ON CONFLICT(id) DO UPDATE SET
++                api_url=excluded.api_url,
++                username=excluded.username,
++                password=excluded.password,
++                realm=excluded.realm,
++                node=excluded.node,
++                location=excluded.location
++            """,
++            (
++                host.id,
++                host.api_url,
++                host.username,
++                host.password,
++                host.realm,
++                host.node,
++                host.location,
++            ),
++        )
 +
 +    def get(self, host_id: str) -> Optional[ProxmoxHostConfig]:
-+        return self._hosts.get(host_id)
++        row = self.db.fetch_one("SELECT * FROM proxmox_hosts WHERE id = ?", (host_id,))
++        return self._row_to_host(row) if row else None
 +
 +    def list(self) -> Iterable[ProxmoxHostConfig]:
-+        return self._hosts.values()
++        rows = self.db.fetch_all("SELECT * FROM proxmox_hosts")
++        return [self._row_to_host(row) for row in rows]
 +
 +    def first_for_location(self, location: str) -> Optional[ProxmoxHostConfig]:
-+        for host in self._hosts.values():
-+            if host.location == location:
-+                return host
-+        return None
++        row = self.db.fetch_one("SELECT * FROM proxmox_hosts WHERE location = ?", (location,))
++        return self._row_to_host(row) if row else None
++
++    @staticmethod
++    def _row_to_host(row) -> ProxmoxHostConfig:
++        return ProxmoxHostConfig(
++            id=row["id"],
++            api_url=row["api_url"],
++            username=row["username"],
++            password=row["password"],
++            realm=row["realm"],
++            node=row["node"],
++            location=row["location"],
++        )
 diff --git a/app/infrastructure/repositories/server_repository.py b/app/infrastructure/repositories/server_repository.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..b09cf867057ccbe72c46e2d69c23485192225562
+index 0000000000000000000000000000000000000000..616a2e6c3951ba2fd9cebd776582f58709ef78e9
 --- /dev/null
 +++ b/app/infrastructure/repositories/server_repository.py
-@@ -0,0 +1,24 @@
+@@ -0,0 +1,75 @@
 +from collections.abc import Iterable
-+from typing import Dict, Optional
++from datetime import datetime
++from typing import Optional
 +from uuid import UUID
 +
-+from app.domain.models.server import Server
++from app.domain.models.server import Server, ServerStatus
++from app.infrastructure.storage.sqlite import SQLiteDataStore
 +
 +
 +class ServerRepository:
-+    """Simple in-memory persistence for server entities."""
++    """SQLite persistence for server entities."""
 +
-+    def __init__(self):
-+        self._servers: Dict[UUID, Server] = {}
++    def __init__(self, db: SQLiteDataStore):
++        self.db = db
 +
 +    def add(self, server: Server) -> None:
-+        self._servers[server.id] = server
++        self.db.execute(
++            """
++            INSERT INTO servers (id, owner_id, plan, location, proxmox_host_id, proxmox_node, vcpu, memory_mb, disk_gb, status, created_at, external_id)
++            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
++            ON CONFLICT(id) DO UPDATE SET
++                owner_id=excluded.owner_id,
++                plan=excluded.plan,
++                location=excluded.location,
++                proxmox_host_id=excluded.proxmox_host_id,
++                proxmox_node=excluded.proxmox_node,
++                vcpu=excluded.vcpu,
++                memory_mb=excluded.memory_mb,
++                disk_gb=excluded.disk_gb,
++                status=excluded.status,
++                external_id=excluded.external_id
++            """,
++            (
++                str(server.id),
++                str(server.owner_id),
++                server.plan,
++                server.location,
++                server.proxmox_host_id,
++                server.proxmox_node,
++                server.vcpu,
++                server.memory_mb,
++                server.disk_gb,
++                server.status.value,
++                server.created_at.isoformat(),
++                server.external_id,
++            ),
++        )
 +
 +    def update(self, server: Server) -> None:
-+        self._servers[server.id] = server
++        self.add(server)
 +
 +    def get(self, server_id: UUID) -> Optional[Server]:
-+        return self._servers.get(server_id)
++        row = self.db.fetch_one("SELECT * FROM servers WHERE id = ?", (str(server_id),))
++        return self._row_to_server(row) if row else None
 +
 +    def list_for_user(self, user_id: UUID) -> Iterable[Server]:
-+        return [srv for srv in self._servers.values() if srv.owner_id == user_id]
++        rows = self.db.fetch_all("SELECT * FROM servers WHERE owner_id = ?", (str(user_id),))
++        return [self._row_to_server(row) for row in rows]
++
++    @staticmethod
++    def _row_to_server(row) -> Server:
++        return Server(
++            id=UUID(row["id"]),
++            owner_id=UUID(row["owner_id"]),
++            plan=row["plan"],
++            location=row["location"],
++            proxmox_host_id=row["proxmox_host_id"],
++            proxmox_node=row["proxmox_node"],
++            vcpu=row["vcpu"],
++            memory_mb=row["memory_mb"],
++            disk_gb=row["disk_gb"],
++            status=ServerStatus(row["status"]),
++            created_at=datetime.fromisoformat(row["created_at"]),
++            external_id=row["external_id"],
++        )
 diff --git a/app/infrastructure/repositories/user_repository.py b/app/infrastructure/repositories/user_repository.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..b0e09388c6aa2d726e48d81cc0f66cd5d654b476
+index 0000000000000000000000000000000000000000..086313db219d99599eaeac3e9bacbbda79b94e75
 --- /dev/null
 +++ b/app/infrastructure/repositories/user_repository.py
-@@ -0,0 +1,21 @@
+@@ -0,0 +1,51 @@
 +from collections.abc import Iterable
-+from typing import Dict, Optional
++from datetime import datetime
++from typing import Optional
 +from uuid import UUID
 +
 +from app.domain.models.user import User
++from app.infrastructure.storage.sqlite import SQLiteDataStore
 +
 +
 +class UserRepository:
-+    """Simple in-memory repository. Swap with DB implementation later."""
++    """SQLite-backed repository for users."""
 +
-+    def __init__(self):
-+        self._users: Dict[UUID, User] = {}
++    def __init__(self, db: SQLiteDataStore):
++        self.db = db
 +
 +    def add(self, user: User) -> None:
-+        self._users[user.id] = user
++        self.db.execute(
++            """
++            INSERT INTO users (id, email, phone_number, external_auth_id, created_at)
++            VALUES (?, ?, ?, ?, ?)
++            ON CONFLICT(id) DO UPDATE SET
++                email=excluded.email,
++                phone_number=excluded.phone_number,
++                external_auth_id=excluded.external_auth_id
++            """,
++            (
++                str(user.id),
++                user.email,
++                user.phone_number,
++                user.external_auth_id,
++                user.created_at.isoformat(),
++            ),
++        )
 +
 +    def get(self, user_id: UUID) -> Optional[User]:
-+        return self._users.get(user_id)
++        row = self.db.fetch_one("SELECT * FROM users WHERE id = ?", (str(user_id),))
++        return self._row_to_user(row) if row else None
 +
 +    def list(self) -> Iterable[User]:
-+        return self._users.values()
++        rows = self.db.fetch_all("SELECT * FROM users")
++        return [self._row_to_user(row) for row in rows]
++
++    @staticmethod
++    def _row_to_user(row) -> User:
++        return User(
++            id=UUID(row["id"]),
++            email=row["email"],
++            phone_number=row["phone_number"],
++            external_auth_id=row["external_auth_id"],
++            created_at=datetime.fromisoformat(row["created_at"]),
++        )
+diff --git a/app/infrastructure/storage/__init__.py b/app/infrastructure/storage/__init__.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..4356d93964eabed5bbcec81df95a64f4135eb8de
+--- /dev/null
++++ b/app/infrastructure/storage/__init__.py
+@@ -0,0 +1,2 @@
++"""Storage layer implementations (SQLite, etc)."""
++
+diff --git a/app/infrastructure/storage/sqlite.py b/app/infrastructure/storage/sqlite.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..944128ae853d72da34772daadfc34d8657cb11a2
+--- /dev/null
++++ b/app/infrastructure/storage/sqlite.py
+@@ -0,0 +1,90 @@
++from __future__ import annotations
++
++import os
++import sqlite3
++from sqlite3 import Row
++from typing import Iterable, Optional
++
++
++class SQLiteDataStore:
++    """Lightweight SQLite helper for persisting domain entities."""
++
++    def __init__(self, path: str):
++        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
++        self.conn = sqlite3.connect(path, check_same_thread=False)
++        self.conn.row_factory = sqlite3.Row
++        self._init_schema()
++
++    def _init_schema(self) -> None:
++        cur = self.conn.cursor()
++        cur.execute(
++            """
++            CREATE TABLE IF NOT EXISTS users (
++                id TEXT PRIMARY KEY,
++                email TEXT NOT NULL,
++                phone_number TEXT NOT NULL,
++                external_auth_id TEXT,
++                created_at TEXT NOT NULL
++            )
++            """
++        )
++        cur.execute(
++            """
++            CREATE TABLE IF NOT EXISTS plans (
++                name TEXT PRIMARY KEY,
++                vcpu INTEGER NOT NULL,
++                memory_mb INTEGER NOT NULL,
++                disk_gb INTEGER NOT NULL,
++                location TEXT NOT NULL,
++                proxmox_host_id TEXT,
++                proxmox_node TEXT,
++                description TEXT,
++                template_vmid INTEGER,
++                disk_storage TEXT
++            )
++            """
++        )
++        cur.execute(
++            """
++            CREATE TABLE IF NOT EXISTS proxmox_hosts (
++                id TEXT PRIMARY KEY,
++                api_url TEXT NOT NULL,
++                username TEXT NOT NULL,
++                password TEXT NOT NULL,
++                realm TEXT NOT NULL,
++                node TEXT,
++                location TEXT NOT NULL
++            )
++            """
++        )
++        cur.execute(
++            """
++            CREATE TABLE IF NOT EXISTS servers (
++                id TEXT PRIMARY KEY,
++                owner_id TEXT NOT NULL,
++                plan TEXT NOT NULL,
++                location TEXT NOT NULL,
++                proxmox_host_id TEXT,
++                proxmox_node TEXT,
++                vcpu INTEGER,
++                memory_mb INTEGER,
++                disk_gb INTEGER,
++                status TEXT NOT NULL,
++                created_at TEXT NOT NULL,
++                external_id TEXT
++            )
++            """
++        )
++        self.conn.commit()
++
++    def execute(self, query: str, params: Iterable | tuple = ()) -> None:
++        self.conn.execute(query, params)
++        self.conn.commit()
++
++    def fetch_one(self, query: str, params: Iterable | tuple = ()) -> Optional[Row]:
++        cur = self.conn.execute(query, params)
++        return cur.fetchone()
++
++    def fetch_all(self, query: str, params: Iterable | tuple = ()) -> list[Row]:
++        cur = self.conn.execute(query, params)
++        return cur.fetchall()
 diff --git a/app/interfaces/__init__.py b/app/interfaces/__init__.py
 new file mode 100644
 index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
-diff --git a/app/interfaces/__pycache__/__init__.cpython-311.pyc b/app/interfaces/__pycache__/__init__.cpython-311.pyc
-new file mode 100644
-index 0000000000000000000000000000000000000000..ce5852fc0fe499c8c42d93a5fd778646341bb674
-GIT binary patch
-literal 135
-zcmZ3^%ge<81V=<wGePuY5CH>>P{wCAAY(d13PUi1CZpd<h9V{)|1(JPmsDawfqrIQ
-zNorAAVsdJ+etdjpUS>&ryk0@&FAkgB{FKt1RJ$Tppi+=w#r#0x12ZEd;|B&9QN#=s
-F0|28>8&LoN
-
-literal 0
-HcmV?d00001
-
-diff --git a/app/interfaces/__pycache__/schemas.cpython-311.pyc b/app/interfaces/__pycache__/schemas.cpython-311.pyc
-new file mode 100644
-index 0000000000000000000000000000000000000000..c7e7040191d9b0899eacdd41791aa1cd1226692f
-GIT binary patch
-literal 2615
-zcma)7&2Jk;6rcU{dTqx|8mCTEN>Ek61-U_-ib@ZBHd5oHgj|-xvUsMA(e66Tu7OlN
-zY)}t9a0pVQ_Sgd|ty(Ue_%j?S2Ww7|IQ8ZzIrYSQvyMM-3XErd^Y*<N@63De_x86!
-z!6wjtFI{Y$(+T+tAC8;R6Au3X;Q^t9Dn1DmM^R8#eKpV=Ezli3FdRebG~Wy|PA0G%
-zOFrv<Hn1IAAu9QtP~#q<Cet2kggk?hHYX=-8L(Mnw!E}u!Df%y3euJXTYk(oK?|#-
-zGVuamQBj1xwzl|5MHAVNyofC|Df5N(Y2Y>d)tC$8vj+2NMHS{M<KHtb^69)9dvPn0
-zyCcTyz2nLW93|V~HJBa{MjV9_M_nUKV>(r?f>tHWpeog#>yK5qE{wD}Cd<GY1J_U!
-z4w(`58vOsqoOv-52E$`jUszy<SKC1&bbS`yj@LzgW4#$NH*5vpFkY)z!gAfv3z+K)
-z+jWB`ZTTqYUH7||=cg8qArwW|^}?_T_h~f4$aT31T3$qx7RCH2IRufsob@&~E;quM
-z@mpS<MVF)cI-Dk|Zfx=#Za~Pwh&}*FhJKyg>0~)s-dgUIUwddgtUvME<%Qky!d`hH
-zxv_nrtuH{|l?Vc#IsUT|pZ1fj2IiA}$_((Fik@R8NSc%~RA&}7D7mFm^Pc_~tj}Pi
-z&B@XX_!xYJKK_DvRHzNg^I%QyueU%iOwQsK59|FXfgR6-NqUHHc>wXeOYSP)f}A#x
-zl_9ym^SLsb-tcy{_Eh6%Ve#O-{5(8D%4u~!;&UKJ_y_az{0vMYcZ)XzmxXa7-n=t?
-zeDdm$_B3vp2S~_%aq51wO?PfT`tn!jPr7$)xm{e@Ew1bpSK8K!bat&`^HZ>xPa;eq
-z;LSMxi_8!{4U)*!eJ_dv7Oyuc$3XLWgc5>`86J+$9>W9((K^6LDp>jCdUAd1`XDE!
-zN^Kqcu3p+VPIXnqxT!phy9DPab~+E^fkw>9dtapshYjf=@cko+gIB?JSOxgc#K9Dj
-zi9>Y=jd4u&9{n<y4sL@AeZ%)cVfoFvBu%YizS@K6ynlM>0_qUTFrs$=M!Zy*OqP<R
-zt)-4#NEVaDt;NnnPlNjOqPV*bqu=@r;h=iOMX~;*4C!A~vPSQ-MphoEP3D~p@JOeb
-z9*ZnsQC70ZK7mD8sdB<zl@$_sBokU#%^yPPFn$rv#NPxEW+V$|P2|{*P)kD3M~9l=
-zSSYUi94r~(8CE(C#^Kih|DR{TKinl7$oi0c>?Z<Tgi7}etDS5q7tNH56;KUM%`f32
-z#))GZRaE{u%I^XUQ&TeH&dk6K!=%L9_iCdgWv5vBd9zcR+i^RSXLjaN>GbT*hn@2I
-zz4E1QA#=(;AOJ@QU6RS#GV=e%R+($)GX4evgz#jRzKsS1EHu$i03-R=XX(ULQcG%E
-zwedvk<jZXx`>tN@OipjdznpFBbI^D7Imu(oupiBI2~1CJ$Y}t53WIT=P170=RjU+*
-z-fBT5#uy4~W0QJN?dlxEm{ueVnkd5;sY;vhNerv-fn$DD?WK{tIQl`%jITiwrv(f@
-zS!u<(fRgmeXgzyrT}?lo*ZBLe1Z#RU3)s~ZMd^@Id$jM9%k5Y9eR8FJQtyzr+M~T|
-zs>*v^G7j6b2dF(7nCy&lQ-SO_5$|t827v`qXkee#l&LNmhwUo|s685(@{<Y#XdLhq
-LpglUlB%}B@Dc&~|
-
-literal 0
-HcmV?d00001
-
 diff --git a/app/interfaces/schemas.py b/app/interfaces/schemas.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..b3d1a57039ee1430bdf6906adb890fe23a70f400
+index 0000000000000000000000000000000000000000..87d734914258103e81f9c7ba5761202ef8f3a770
 --- /dev/null
 +++ b/app/interfaces/schemas.py
-@@ -0,0 +1,124 @@
+@@ -0,0 +1,132 @@
 +from uuid import UUID
 +
 +from pydantic import BaseModel, EmailStr, Field
@@ -1626,6 +1407,12 @@ index 0000000000000000000000000000000000000000..b3d1a57039ee1430bdf6906adb890fe2
 +    location: str
 +    proxmox_host_id: str | None = None
 +    proxmox_node: str | None = None
++    template_vmid: int | None = Field(
++        default=None, description="Optional template VMID to clone when provisioning"
++    )
++    disk_storage: str | None = Field(
++        default=None, description="Preferred storage target when creating/cloning"
++    )
 +    description: str | None = None
 +
 +
@@ -1637,6 +1424,8 @@ index 0000000000000000000000000000000000000000..b3d1a57039ee1430bdf6906adb890fe2
 +    location: str
 +    proxmox_host_id: str | None
 +    proxmox_node: str | None
++    template_vmid: int | None
++    disk_storage: str | None
 +    description: str | None
 +
 +    @classmethod

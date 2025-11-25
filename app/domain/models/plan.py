@@ -12,4 +12,6 @@ class PlanSpec:
     location: str
     proxmox_host_id: str | None = None
     proxmox_node: str | None = None
+    template_vmid: int | None = None
+    disk_storage: str | None = None
     description: str | None = None

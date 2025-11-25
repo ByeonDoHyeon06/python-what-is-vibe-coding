@@ -13,21 +13,27 @@ from app.infrastructure.repositories.plan_repository import PlanRepository
 from app.infrastructure.repositories.proxmox_host_repository import ProxmoxHostRepository
 from app.infrastructure.repositories.server_repository import ServerRepository
 from app.infrastructure.repositories.user_repository import UserRepository
+from app.infrastructure.storage.sqlite import SQLiteDataStore
+
+
+@lru_cache()
+def get_datastore() -> SQLiteDataStore:
+    return SQLiteDataStore(settings.database_path)
 
 
 @lru_cache()
 def get_user_repository() -> UserRepository:
-    return UserRepository()
+    return UserRepository(get_datastore())
 
 
 @lru_cache()
 def get_server_repository() -> ServerRepository:
-    return ServerRepository()
+    return ServerRepository(get_datastore())
 
 
 @lru_cache()
 def get_plan_repository() -> PlanRepository:
-    repo = PlanRepository()
+    repo = PlanRepository(get_datastore())
     if not repo.get("basic"):
         repo.add(
             PlanSpec(
@@ -37,6 +43,7 @@ def get_plan_repository() -> PlanRepository:
                 disk_gb=20,
                 location="kr-central",
                 description="Default starter plan",
+                disk_storage="local-lvm",
             )
         )
     if not repo.get("pro"):
@@ -48,6 +55,7 @@ def get_plan_repository() -> PlanRepository:
                 disk_gb=80,
                 location="kr-central",
                 description="Larger VM for heavier workloads",
+                disk_storage="local-lvm",
             )
         )
     return repo
@@ -55,7 +63,7 @@ def get_plan_repository() -> PlanRepository:
 
 @lru_cache()
 def get_proxmox_host_repository() -> ProxmoxHostRepository:
-    repo = ProxmoxHostRepository()
+    repo = ProxmoxHostRepository(get_datastore())
     if settings.proxmox_password:
         repo.add(
             ProxmoxHostConfig(

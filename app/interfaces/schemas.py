@@ -76,6 +76,12 @@ class PlanCreate(BaseModel):
     location: str
     proxmox_host_id: str | None = None
     proxmox_node: str | None = None
+    template_vmid: int | None = Field(
+        default=None, description="Optional template VMID to clone when provisioning"
+    )
+    disk_storage: str | None = Field(
+        default=None, description="Preferred storage target when creating/cloning"
+    )
     description: str | None = None
 
 
@@ -87,6 +93,8 @@ class PlanRead(BaseModel):
     location: str
     proxmox_host_id: str | None
     proxmox_node: str | None
+    template_vmid: int | None
+    disk_storage: str | None
     description: str | None
 
     @classmethod

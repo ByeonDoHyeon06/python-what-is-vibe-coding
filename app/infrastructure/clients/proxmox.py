@@ -16,11 +16,12 @@ class ProxmoxClient:
     def authenticate(self, host: ProxmoxHostConfig) -> Tuple[str, str | None]:
         """Login with username/password and return (ticket, csrf)."""
 
+        base_url = host.api_url.rstrip("/")
         login_payload = {
             "username": f"{host.username}@{host.realm}" if host.realm else host.username,
             "password": host.password,
         }
-        response = self.http.post(f"{host.api_url}/api2/json/access/ticket", data=login_payload)
+        response = self.http.post(f"{base_url}/api2/json/access/ticket", data=login_payload)
         response.raise_for_status()
         data = response.json()["data"]
         return data["ticket"], data.get("CSRFPreventionToken")
@@ -39,24 +40,54 @@ class ProxmoxClient:
         if not node:
             raise ValueError("Proxmox node must be configured on the plan or host")
 
-        payload = {
-            "name": f"vm-{server.id}",
-            "cores": plan.vcpu,
-            "memory": plan.memory_mb,
-            "sockets": 1,
-            "ostype": "l26",
-            "virtio0": f"local-lvm:{plan.disk_gb}G",
-        }
+        base_url = host.api_url.rstrip("/")
+        vm_name = f"vm-{server.id}"
+        vmid = self._generate_vmid(server)
 
-        response = self.http.post(
-            f"{host.api_url}/api2/json/nodes/{node}/qemu",
-            data=payload,
+        if plan.template_vmid:
+            response = self.http.post(
+                f"{base_url}/api2/json/nodes/{node}/qemu/{plan.template_vmid}/clone",
+                data={
+                    "newid": vmid,
+                    "name": vm_name,
+                    "target": node,
+                    "full": 1,
+                    "storage": plan.disk_storage or "local-lvm",
+                },
+                headers=self._headers(ticket, csrf),
+            )
+            response.raise_for_status()
+        else:
+            payload = {
+                "vmid": vmid,
+                "name": vm_name,
+                "cores": plan.vcpu,
+                "memory": plan.memory_mb,
+                "sockets": 1,
+                "ostype": "l26",
+                "virtio0": f"{plan.disk_storage or 'local-lvm'}:{plan.disk_gb}G",
+            }
+
+            response = self.http.post(
+                f"{base_url}/api2/json/nodes/{node}/qemu",
+                data=payload,
+                headers=self._headers(ticket, csrf),
+            )
+            response.raise_for_status()
+
+        # ensure resources match plan for cloned templates
+        self.http.put(
+            f"{base_url}/api2/json/nodes/{node}/qemu/{vmid}/config",
+            data={
+                "cores": plan.vcpu,
+                "memory": plan.memory_mb,
+                "name": vm_name,
+                "virtio0": f"{plan.disk_storage or 'local-lvm'}:{plan.disk_gb}G",
+            },
             headers=self._headers(ticket, csrf),
-        )
-        response.raise_for_status()
-        data = response.json().get("data") if response.headers.get("content-type", "").startswith("application/json") else None
-        vmid = data.get("vmid") if isinstance(data, dict) else None
-        return vmid or f"vm-{server.id}"
+        ).raise_for_status()
+
+        return str(vmid)
 
     def destroy_server(self, external_id: str, host: ProxmoxHostConfig, node: str | None = None) -> None:
         """Rollback helper to clean up failed provisioning attempts."""
@@ -67,7 +98,11 @@ class ProxmoxClient:
             raise ValueError("Proxmox node required to delete VM")
 
         response = self.http.delete(
-            f"{host.api_url}/api2/json/nodes/{target_node}/qemu/{external_id}",
+            f"{host.api_url.rstrip('/')}/api2/json/nodes/{target_node}/qemu/{external_id}",
             headers=self._headers(ticket, csrf),
         )
         response.raise_for_status()
+
+    @staticmethod
+    def _generate_vmid(server: Server) -> int:
+        return abs(server.id.int % 2_000_000_000) or 1000
