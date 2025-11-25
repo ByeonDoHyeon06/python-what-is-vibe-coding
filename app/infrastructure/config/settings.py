@@ -11,8 +11,17 @@ class Settings(BaseSettings):
 
     # Proxmox settings
     proxmox_host: str = Field("https://proxmox.local", env="PROXMOX_HOST")
-    proxmox_token_id: str = Field("", env="PROXMOX_TOKEN_ID")
-    proxmox_token_secret: str = Field("", env="PROXMOX_TOKEN_SECRET")
+    proxmox_user: str = Field("root", env="PROXMOX_USER")
+    proxmox_password: str = Field("", env="PROXMOX_PASSWORD")
+    proxmox_realm: str = Field("pam", env="PROXMOX_REALM")
+    proxmox_default_node: str | None = Field("pve", env="PROXMOX_DEFAULT_NODE")
+    proxmox_node_map: dict[str, str] = Field(default_factory=dict)
+    proxmox_plan_templates: dict[str, dict[str, str | int]] = Field(
+        default_factory=lambda: {
+            "basic": {"template_vmid": "9000", "type": "qemu"},
+            "pro": {"template_vmid": "9001", "type": "qemu"},
+        }
+    )
 
     # SOLAPI settings
     solapi_api_key: str = Field("", env="SOLAPI_KEY")
