@@ -29,7 +29,11 @@ class ServerProvisionOrchestrator:
             server.status = ServerStatus.PROVISIONING
             self.server_repo.update(server)
 
-            external_id = self.proxmox_client.provision_server(server)
+            node = self.proxmox_client.resolve_node(server.location)
+            plan_template = self.proxmox_client.resolve_plan_template(server.plan)
+            external_id = self.proxmox_client.provision_server(
+                server, node=node, plan_template=plan_template
+            )
             server.external_id = external_id
 
             server.status = ServerStatus.ACTIVE
