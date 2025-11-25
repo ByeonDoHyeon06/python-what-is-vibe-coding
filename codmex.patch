@@ -771,10 +771,10 @@ new file mode 100644
 index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
 diff --git a/app/infrastructure/clients/proxmox.py b/app/infrastructure/clients/proxmox.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..aeff875e9c9a1f15e12ac5a524ec2226a5d10035
+index 0000000000000000000000000000000000000000..0b40a7c4afd62c0aca700297782232a6adf431bd
 --- /dev/null
 +++ b/app/infrastructure/clients/proxmox.py
-@@ -0,0 +1,108 @@
+@@ -0,0 +1,117 @@
 +from typing import Tuple
 +
 +import httpx
@@ -821,6 +821,8 @@ index 0000000000000000000000000000000000000000..aeff875e9c9a1f15e12ac5a524ec2226
 +        vm_name = f"vm-{server.id}"
 +        vmid = self._generate_vmid(server)
 +
++        disk_volume = self._disk_volume(plan)
++
 +        if plan.template_vmid:
 +            response = self.http.post(
 +                f"{base_url}/api2/json/nodes/{node}/qemu/{plan.template_vmid}/clone",
@@ -842,7 +844,7 @@ index 0000000000000000000000000000000000000000..aeff875e9c9a1f15e12ac5a524ec2226
 +                "memory": plan.memory_mb,
 +                "sockets": 1,
 +                "ostype": "l26",
-+                "virtio0": f"{plan.disk_storage or 'local-lvm'}:{plan.disk_gb}G",
++                "virtio0": disk_volume,
 +            }
 +
 +            response = self.http.post(
@@ -859,7 +861,7 @@ index 0000000000000000000000000000000000000000..aeff875e9c9a1f15e12ac5a524ec2226
 +                "cores": plan.vcpu,
 +                "memory": plan.memory_mb,
 +                "name": vm_name,
-+                "virtio0": f"{plan.disk_storage or 'local-lvm'}:{plan.disk_gb}G",
++                "virtio0": disk_volume,
 +            },
 +            headers=self._headers(ticket, csrf),
 +        ).raise_for_status()
@@ -883,6 +885,13 @@ index 0000000000000000000000000000000000000000..aeff875e9c9a1f15e12ac5a524ec2226
 +    @staticmethod
 +    def _generate_vmid(server: Server) -> int:
 +        return abs(server.id.int % 2_000_000_000) or 1000
++
++    @staticmethod
++    def _disk_volume(plan: PlanSpec) -> str:
++        """Create a disk volume string Proxmox expects (without size suffixes)."""
++
++        storage = plan.disk_storage or "local-lvm"
++        return f"{storage}:{int(plan.disk_gb)}"
 diff --git a/app/infrastructure/clients/solapi.py b/app/infrastructure/clients/solapi.py
 new file mode 100644
 index 0000000000000000000000000000000000000000..0558e27259511cc568021c7d90c2949d31fed2d5
