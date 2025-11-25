@@ -12,7 +12,13 @@ def register_user(
     payload: UserCreate,
     register = Depends(get_user_registration),
 ):
-    user = register.execute(email=payload.email, phone_number=payload.phone_number)
+    user = register.execute(
+        email=payload.email,
+        phone_number=payload.phone_number,
+        external_provider=payload.external_provider,
+        external_id=payload.external_id,
+        external_claims=payload.external_claims,
+    )
     return UserRead.from_entity(user)
 
 
