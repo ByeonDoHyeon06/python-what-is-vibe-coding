@@ -1,4 +1,68 @@
  (cd "$(git rev-parse --show-toplevel)" && git apply --3way <<'EOF' 
+diff --git a/README.md b/README.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..ead843dea90f7b950b98e99ae939ce7e2b38ee4c
+--- /dev/null
++++ b/README.md
+@@ -0,0 +1,58 @@
++# VibeCoding Hosting Backend (FastAPI)
++
++## Getting started
++1. Install dependencies
++   ```bash
++   pip install -r requirements.txt
++   ```
++2. Run the API
++   ```bash
++   uvicorn app.main:app --reload
++   ```
++3. Visit the docs at [`/docs`](http://localhost:8000/docs) for interactive testing.
++
++## Available endpoints (happy-path flow)
++- `POST /users` – register a customer with `email` and `phone_number`.
++- `GET /users` – list registered customers.
++- `GET /servers/metadata/allowed` – discover the allowed `plans` and `locations` enforced by the provisioning policy.
++- `POST /servers` – provision a server for a user. Body example:
++  ```json
++  {
++    "user_id": "<user uuid from /users>",
++    "plan": "basic",
++    "location": "kr-central"
++  }
++  ```
++- `GET /servers/user/{user_id}` – list servers created for a specific user.
++- `GET /servers/{server_id}` – fetch a single server.
++- `GET /healthz` – simple health check.
++
++## How the Proxmox & SOLAPI adapters work
++- `app/infrastructure/clients/proxmox.py` – wraps calls to the Proxmox HTTP API. Replace the placeholder logic in `provision_server` / `destroy_server` with real requests (e.g., using `proxmoxer` or `requests`). The client already pulls auth/token values from environment variables (`PROXMOX_HOST`, `PROXMOX_TOKEN_ID`, `PROXMOX_TOKEN_SECRET`).
++- `app/infrastructure/clients/solapi.py` – place to call the official SOLAPI SDK. It reads `SOLAPI_KEY`, `SOLAPI_SECRET`, and `SOLAPI_FROM`. Implement SMS sending in `send_provisioning_sms`.
++
++Both clients are injected into the saga orchestrator (`app/application/services/server_orchestrator.py`), which sets the server status, calls Proxmox, and sends an SMS. If an exception occurs, the orchestrator rolls back by calling `destroy_server` and marking the server as `ROLLED_BACK`.
++
++## Configuration
++- Defaults live in `app/infrastructure/config/settings.py` and are overrideable via environment variables or a local `.env` file.
++- Provisioning policy allows `basic`/`pro` plans and `kr-central`/`jp-east` locations by default; adjust in `app/api/dependencies.py` or `app/domain/services/provisioning_policy.py` as needed.
++
++## Example cURL
++```bash
++# 1) Register a user
++curl -X POST http://localhost:8000/users \
++  -H "Content-Type: application/json" \
++  -d '{"email":"test@example.com","phone_number":"01012345678"}'
++
++# 2) Check allowed plans/locations
++curl http://localhost:8000/servers/metadata/allowed
++
++# 3) Provision a server
++curl -X POST http://localhost:8000/servers \
++  -H "Content-Type: application/json" \
++  -d '{"user_id":"<uuid>","plan":"basic","location":"kr-central"}'
++```
++
++## Notes
++- Persistence is in-memory only; swap `UserRepository`/`ServerRepository` with real adapters to persist data.
++- Validation/rollback is handled in the `ProvisionServer` use case and the `ServerProvisionOrchestrator`.
 diff --git a/app/__init__.py b/app/__init__.py
 new file mode 100644
 index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
@@ -220,15 +284,19 @@ HcmV?d00001
 
 diff --git a/app/api/routes/servers.py b/app/api/routes/servers.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..2bee181fcdd09b85fed48de3a3a6db4bc3fefa7e
+index 0000000000000000000000000000000000000000..1aa0d2167448479749c95c00f1163308bff97b05
 --- /dev/null
 +++ b/app/api/routes/servers.py
-@@ -0,0 +1,35 @@
+@@ -0,0 +1,53 @@
 +from uuid import UUID
 +
 +from fastapi import APIRouter, Depends, HTTPException
 +
-+from app.api.dependencies import get_server_provisioning, get_server_repository
++from app.api.dependencies import (
++    get_provisioning_policy,
++    get_server_provisioning,
++    get_server_repository,
++)
 +from app.infrastructure.repositories.server_repository import ServerRepository
 +from app.interfaces.schemas import ServerCreate, ServerRead
 +
@@ -251,6 +319,20 @@ index 0000000000000000000000000000000000000000..2bee181fcdd09b85fed48de3a3a6db4b
 +def list_user_servers(user_id: UUID, repo: ServerRepository = Depends(get_server_repository)):
 +    servers = repo.list_for_user(user_id=user_id)
 +    return [ServerRead.from_entity(server) for server in servers]
++
++
++@router.get("/metadata/allowed", tags=["metadata"])
++def get_allowed_plans_and_locations(policy=Depends(get_provisioning_policy)):
++    """Expose the whitelisted locations/plans that the policy enforces.
++
++    This gives the client a way to discover what values are accepted before calling
++    the provisioning endpoint.
++    """
++
++    return {
++        "locations": sorted(policy.allowed_locations),
++        "plans": sorted(policy.allowed_plans),
++    }
 +
 +
 +@router.get("/{server_id}", response_model=ServerRead)
@@ -1125,6 +1207,6 @@ index 0000000000000000000000000000000000000000..b0ab436b5c5e1c06790ae89a95a4d4b5
 +fastapi>=0.104.0
 +uvicorn>=0.23.0
 +pydantic>=1.10.0
- 
+
 EOF
 )
